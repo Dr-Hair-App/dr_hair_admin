@@ -430,7 +430,7 @@ export function HeaderSearch({
           onKeyDown={handleKeyDown}
           placeholder={placeholderText}
           aria-label="Universal admin search"
-          className="w-full border-0 bg-transparent text-xs text-slate-800 outline-none focus-visible:outline-none focus-visible:ring-0 placeholder:text-slate-400 font-medium"
+          className="w-full border-0 bg-transparent text-xs text-slate-800 outline-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 shadow-none placeholder:text-slate-400 font-medium"
         />
 
         {localQuery && (
@@ -481,7 +481,7 @@ export function HeaderSearch({
                 value={localQuery}
                 onChange={(e) => handleQueryChange(e.target.value)}
                 placeholder="Search clinic records..."
-                className="w-full border-0 bg-transparent text-xs text-slate-800 outline-none focus-visible:outline-none focus-visible:ring-0 placeholder:text-slate-400"
+                className="w-full border-0 bg-transparent text-xs text-slate-800 outline-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 shadow-none placeholder:text-slate-400"
               />
               {localQuery && (
                 <button

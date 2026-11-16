@@ -117,11 +117,11 @@ export function SignIn({ onAuthenticated }: { onAuthenticated: (admin: AdminIden
           <form onSubmit={signIn} className="signin-form">
             <label className="signin-field">
               <span>Email or admin ID</span>
-              <div><KeyRound size={15} /><input autoCapitalize="none" autoCorrect="off" autoComplete="username" value={loginId} onChange={(event) => setLoginId(event.target.value)} type="text" placeholder="name@clinic.com" required /></div>
+              <div><KeyRound size={15} /><input className="border-0 outline-none shadow-none focus:border-0 focus:outline-none focus:ring-0" autoCapitalize="none" autoCorrect="off" autoComplete="username" value={loginId} onChange={(event) => setLoginId(event.target.value)} type="text" placeholder="name@clinic.com" required /></div>
             </label>
             <label className="signin-field">
               <span>Password</span>
-              <div><ShieldCheck size={15} /><input autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} type={showPassword ? "text" : "password"} placeholder="Enter your password" required /><button className="signin-password-toggle" type="button" onClick={() => setShowPassword((current) => !current)} aria-label={showPassword ? "Hide password" : "Show password"} aria-pressed={showPassword}>{showPassword ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>
+              <div><ShieldCheck size={15} /><input className="border-0 outline-none shadow-none focus:border-0 focus:outline-none focus:ring-0" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} type={showPassword ? "text" : "password"} placeholder="Enter your password" required /><button className="signin-password-toggle outline-none focus:outline-none focus:ring-0" type="button" onClick={() => setShowPassword((current) => !current)} aria-label={showPassword ? "Hide password" : "Show password"} aria-pressed={showPassword}>{showPassword ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>
             </label>
 
             {error && <p className="signin-error" role="alert">{error}</p>}
