@@ -232,7 +232,7 @@ export function NotificationsPanel({ onToast, onAudit }: { onToast: (message: st
               <input
                 value={imageUrl}
                 onChange={(event) => setImageUrl(event.target.value)}
-                placeholder="https://... (e.g. Cloudinary image banner URL)"
+                placeholder="https://... (e.g. Cloudflare R2 image banner URL)"
               />
               <small>Attached to FCM rich push notification and shown on patient lock screen</small>
             </label>

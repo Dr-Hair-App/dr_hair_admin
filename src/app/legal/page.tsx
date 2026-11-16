@@ -162,27 +162,27 @@ export default function LegalHubPage() {
                 <tr>
                   <td className="p-3 font-sans font-semibold text-[#1A365D]">Privacy Policy URL</td>
                   <td className="p-3 font-sans text-[#596E8C]">Google Play &amp; Apple</td>
-                  <td className="p-3 text-[#0D9488] font-bold">https://adminpanal-ruby.vercel.app/privacy</td>
+                  <td className="p-3 text-[#0D9488] font-bold">{`${process.env.ADMIN_PUBLIC_URL?.replace(/\/+$/, "") || "<admin-domain>"}/privacy`}</td>
                 </tr>
                 <tr>
                   <td className="p-3 font-sans font-semibold text-[#1A365D]">Account Deletion URL</td>
                   <td className="p-3 font-sans text-[#596E8C]">Google Play (Data Safety) &amp; Apple</td>
-                  <td className="p-3 text-[#0D9488] font-bold">https://adminpanal-ruby.vercel.app/delete-account</td>
+                  <td className="p-3 text-[#0D9488] font-bold">{`${process.env.ADMIN_PUBLIC_URL?.replace(/\/+$/, "") || "<admin-domain>"}/delete-account`}</td>
                 </tr>
                 <tr>
                   <td className="p-3 font-sans font-semibold text-[#1A365D]">Support URL</td>
                   <td className="p-3 font-sans text-[#596E8C]">Apple App Store (Mandatory)</td>
-                  <td className="p-3 text-[#0D9488] font-bold">https://adminpanal-ruby.vercel.app/support</td>
+                  <td className="p-3 text-[#0D9488] font-bold">{`${process.env.ADMIN_PUBLIC_URL?.replace(/\/+$/, "") || "<admin-domain>"}/support`}</td>
                 </tr>
                 <tr>
                   <td className="p-3 font-sans font-semibold text-[#1A365D]">Marketing / EULA URL</td>
                   <td className="p-3 font-sans text-[#596E8C]">Apple App Store &amp; Play Store</td>
-                  <td className="p-3 text-[#0D9488] font-bold">https://adminpanal-ruby.vercel.app/terms</td>
+                  <td className="p-3 text-[#0D9488] font-bold">{`${process.env.ADMIN_PUBLIC_URL?.replace(/\/+$/, "") || "<admin-domain>"}/terms`}</td>
                 </tr>
                 <tr>
                   <td className="p-3 font-sans font-semibold text-[#1A365D]">Refund Policy URL</td>
                   <td className="p-3 font-sans text-[#596E8C]">Google Play &amp; Payments</td>
-                  <td className="p-3 text-[#0D9488] font-bold">https://adminpanal-ruby.vercel.app/refund-policy</td>
+                  <td className="p-3 text-[#0D9488] font-bold">{`${process.env.ADMIN_PUBLIC_URL?.replace(/\/+$/, "") || "<admin-domain>"}/refund-policy`}</td>
                 </tr>
               </tbody>
             </table>

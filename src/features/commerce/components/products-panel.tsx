@@ -667,7 +667,7 @@ export function ProductsPanel({
       <div className="notice commerce-media-note">
         <ImagePlus size={14} />
         <span>
-          Product catalog is connected to live Cloudinary storage and database APIs. Uploaded images sync directly to
+          Product catalog is connected to live Cloudflare R2 storage and database APIs. Uploaded images sync directly to
           patient mobile apps.
         </span>
       </div>
@@ -871,7 +871,7 @@ function ProductEditor({
         throw new Error(body?.message || `Failed to upload ${file.name}.`);
       }
 
-      // Update form media with permanent Cloudinary URL
+      // Update form media with permanent Cloudflare R2 URL
       setForm((prev) => ({
         ...prev,
         media: prev.media.map((m) =>
@@ -893,7 +893,7 @@ function ProductEditor({
         return next;
       });
 
-      onToast(`Uploaded ${file.name} to Cloudinary.`);
+      onToast(`Uploaded ${file.name} to Cloudflare R2.`);
       return cloudUrl;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : `Failed to upload ${file.name}`;
@@ -1162,7 +1162,7 @@ function ProductEditor({
             )}
           </div>
         }
-        description="Configure product clinical details, real-time inventory, pricing, and high-resolution Cloudinary media."
+        description="Configure product clinical details, real-time inventory, pricing, and high-resolution Cloudflare R2 media."
         submitLabel={
           isUploading ? (
             <span className="inline-flex items-center gap-2">
@@ -1639,7 +1639,7 @@ function ProductEditor({
           <div className="product-editor-section animate-in fade-in duration-200">
             <div className="product-editor-section-head">
               <div>
-                <h3>Product photos & media (Cloudinary)</h3>
+                <h3>Product photos & media (Cloudflare R2)</h3>
                 <p>Drag & drop product images, browse from device, or paste direct URLs. Star marks the primary cover.</p>
               </div>
               <span className="product-section-number">03</span>
@@ -1649,7 +1649,7 @@ function ProductEditor({
               <div className="flex items-center gap-2.5 rounded-xl border border-teal-200 bg-teal-50/90 px-3.5 py-2.5 text-xs text-teal-800 shadow-sm animate-pulse">
                 <Loader2 size={16} className="animate-spin text-teal-600 shrink-0" />
                 <span className="font-semibold">
-                  Uploading {uploadingCount} image{uploadingCount > 1 ? "s" : ""} to Cloudinary storage...
+                  Uploading {uploadingCount} image{uploadingCount > 1 ? "s" : ""} to Cloudflare R2 storage...
                 </span>
               </div>
             )}
@@ -1685,7 +1685,7 @@ function ProductEditor({
                 </span>
                 <div>
                   <strong>{isDraggingOver ? "Drop medicine photos here" : "Upload from device"}</strong>
-                  <small>Drag & drop or browse photos (JPEG, PNG, WebP up to 10 MB). Uploads immediately to Cloudinary.</small>
+                  <small>Drag & drop or browse photos (JPEG, PNG, WebP up to 10 MB). Uploads immediately to Cloudflare R2.</small>
                 </div>
                 <button
                   type="button"
@@ -1702,15 +1702,15 @@ function ProductEditor({
               {/* Direct URL input */}
               <div className="flex flex-col justify-between p-3.5 rounded-xl border border-slate-200 bg-slate-50/70">
                 <div className="mb-2">
-                  <strong className="text-xs font-semibold text-slate-800 block">Add via Image / Cloudinary URL</strong>
-                  <small className="text-[11px] text-slate-500">Paste any public image link or Cloudinary secure URL</small>
+                  <strong className="text-xs font-semibold text-slate-800 block">Add via Image / Cloudflare R2 URL</strong>
+                  <small className="text-[11px] text-slate-500">Paste any public image link or Cloudflare R2 secure URL</small>
                 </div>
                 <div className="flex items-center gap-2">
                   <input
                     type="url"
                     value={urlInput}
                     onChange={(e) => setUrlInput(e.target.value)}
-                    placeholder="https://res.cloudinary.com/.../medicine.jpg"
+                    placeholder="https://res.R2.com/.../medicine.jpg"
                     className="flex-1 text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white"
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
@@ -1745,7 +1745,7 @@ function ProductEditor({
                     : null) ||
                   previews.find((item) => item.name === media.name || item.url === media.url)?.url;
                 const Icon = media.kind === "video" ? Video : Package;
-                const isCloudinary = displayUrl?.includes("cloudinary.com");
+                const isR2 = displayUrl?.includes("/api/v1/media/assets/drhair/images/");
 
                 return (
                   <div
@@ -1792,9 +1792,9 @@ function ProductEditor({
                           <span className="inline-flex items-center gap-1 text-[8px] font-bold text-rose-700 bg-rose-100 rounded px-1.5 py-0.5">
                             <AlertTriangle size={9} className="text-rose-600" /> Upload failed
                           </span>
-                        ) : isCloudinary ? (
+                        ) : isR2 ? (
                           <span className="inline-flex items-center text-[8px] font-bold text-emerald-800 bg-emerald-100 rounded px-1.5 py-0.5">
-                            Cloudinary
+                            Cloudflare R2
                           </span>
                         ) : null}
                         <span className="truncate">{media.name}</span>
@@ -1802,7 +1802,7 @@ function ProductEditor({
                       <small>
                         {media.kind} ·{" "}
                         {status === "uploading"
-                          ? "Uploading to Cloudinary..."
+                          ? "Uploading to Cloudflare R2..."
                           : status === "error"
                           ? meta?.error || "Error uploading"
                           : displayUrl

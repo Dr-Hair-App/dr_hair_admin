@@ -444,7 +444,7 @@ export function HairTestsPage({
         </div>
         <div className="table-footer">
           <span>Showing {filtered.length} of {records.length} test records</span>
-          <span>Stored in secure Cloudinary clinical storage</span>
+          <span>Stored in secure Cloudflare R2 clinical storage</span>
         </div>
       </section>
 

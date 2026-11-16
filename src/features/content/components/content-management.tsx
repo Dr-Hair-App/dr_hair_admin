@@ -76,7 +76,7 @@ function mapSavedVideo(item: Record<string, unknown>): VideoContentItem {
   return {
     id: String(item.public_id || item.youtube_video_id || ""),
     publicId: typeof item.public_id === "string" ? item.public_id : undefined,
-    provider: item.provider === "youtube" ? "youtube" : "cloudinary",
+    provider: "youtube",
     title: String(item.title || "Untitled video"),
     category: String(item.category || "Hair Care"),
     duration: durationStr,
@@ -140,7 +140,6 @@ export function ContentManagement({
     initialVideos
   );
   const [savingVideo, setSavingVideo] = useState(false);
-  const [isPurgingLegacy, setIsPurgingLegacy] = useState(false);
   const [isDeletingItem, setIsDeletingItem] = useState(false);
   const [videoLoadError, setVideoLoadError] = useState("");
   const [reviews, setReviews] = useSessionState<ReviewContentItem[]>(
@@ -344,34 +343,6 @@ export function ContentManagement({
         }
       };
       reader.readAsDataURL(file);
-    }
-  };
-
-  // Purge legacy demo videos from MongoDB / store
-  const handlePurgeLegacyVideos = async () => {
-    if (!window.confirm("Are you sure you want to purge all legacy Cloudinary and demo sample videos from the database? This cannot be undone.")) {
-      return;
-    }
-    setIsPurgingLegacy(true);
-    try {
-      const response = await fetch("/api/admin/media/videos/purge-legacy", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.message || "Failed to purge legacy videos.");
-      onAudit("purged legacy demo videos", `${result?.data?.deletedCount || 0} removed`);
-      onToast(result.message || "Legacy demo videos purged successfully.");
-      const refreshRes = await fetch("/api/admin/media/videos", { cache: "no-store" });
-      const refreshData = await refreshRes.json().catch(() => ({}));
-      if (refreshRes.ok && Array.isArray(refreshData?.data?.items)) {
-        setVideos(refreshData.data.items.map(mapSavedVideo));
-      }
-    } catch (error) {
-      onToast(error instanceof Error ? error.message : "Failed to purge legacy videos.");
-    } finally {
-      setIsPurgingLegacy(false);
     }
   };
 
@@ -782,17 +753,6 @@ export function ContentManagement({
                 title="Refresh video list from database"
               >
                 <span>{isRefreshingVideos ? "Syncing…" : "↻ Refresh"}</span>
-              </button>
-            )}
-            {activeTab === "videos" && canEdit && (
-              <button
-                type="button"
-                className="button button-secondary text-xs flex items-center gap-1.5 text-rose-700 hover:text-rose-800 hover:border-rose-300"
-                onClick={handlePurgeLegacyVideos}
-                disabled={isPurgingLegacy}
-              >
-                <Trash2 size={14} />
-                <span>{isPurgingLegacy ? "Purging…" : "Purge Legacy Demo Videos"}</span>
               </button>
             )}
             <button

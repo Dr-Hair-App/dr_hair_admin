@@ -154,7 +154,7 @@ export default function PrivacyPolicyPage() {
             We partner only with industry-leading, enterprise-grade cloud service providers who comply with international privacy standards (ISO 27001, SOC 2, HIPAA/GDPR alignment):
           </p>
           <ul>
-            <li><strong>Cloudinary:</strong> Secure cloud storage for encrypted clinical images with authenticated URL signatures.</li>
+            <li><strong>Cloudflare R2:</strong> Secure cloud storage for encrypted clinical images with authenticated URL signatures.</li>
             <li><strong>Firebase / Google Cloud:</strong> Secure authentication tokens, crash analytics, and transactional push notifications.</li>
             <li><strong>MongoDB Atlas:</strong> Encrypted production database with automated backups and network firewall isolation.</li>
             <li><strong>SMS Gateways (Transactional):</strong> Routing one-time passwords (OTP) and booking SMS notifications to your mobile carrier.</li>

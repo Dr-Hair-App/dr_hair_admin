@@ -424,7 +424,7 @@ export function AdminShell({
                 <div>
                   <div className="font-semibold text-[#1A365D]">Backend API Endpoint</div>
                   <div className="text-slate-500 text-[10px] truncate max-w-[220px]">
-                    https://backend-ten-kappa-69.vercel.app
+                    Connected through deployment configuration
                   </div>
                 </div>
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" title="Connected" />

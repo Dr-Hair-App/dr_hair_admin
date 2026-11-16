@@ -3,30 +3,40 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "dev": "vite dev --port 3001",
+    "build": "vite build",
+    "start": "vite preview",
     "lint": "eslint",
-    "deploy": "./deploy.sh",
-    "deploy:prod": "next build && npx vercel --prod --yes",
-    "deploy:quick": "npx vercel --prod --yes"
+    "deploy": "vinext-cloudflare deploy"
   },
   "dependencies": {
+    "@vinext/cloudflare": "^1.3.4",
     "lucide-react": "^1.63.0",
     "next": "16.4.3",
-    "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-server-dom-webpack": "^19.3.1",
+    "vinext": "^1.4.5"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^2.0.0-beta.v.17",
+    "@tailwindcss/postcss": "^4.3.5",
     "@tailwindcss/turbopack": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6.3.0",
+    "@vitejs/plugin-rsc": "^0.5.39",
+    "cf": "^1.0.0-beta.32",
     "eslint": "^9",
     "eslint-config-next": "16.4.3",
     "playwright": "^1.64.1",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vercel": "^65.12.1"
+    "vite": "^8.3.8"
+  },
+  "type": "module",
+  "overrides": {
+    "fflate": "0.7.5"
   }
 }

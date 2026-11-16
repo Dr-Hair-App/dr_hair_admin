@@ -1,6 +1,6 @@
 # Dr. Hair Admin Panel
 
-Next.js and TypeScript admin-panel UI for the Dr. Hair mobile app.
+TypeScript admin panel for the Dr. Hair mobile app. It runs on Cloudflare Workers through vinext.
 
 ## Start locally
 
@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`. Admin sign-in uses the backend email/password flow. Set `DRHAIR_BACKEND_URL` in the shell or local environment to the Express API origin (defaults to `http://localhost:5001`). Patient OTP sign-in is phone-SMS-only and requires `FAST2SMS_API_KEY` in every backend environment.
+Open `http://localhost:3001`. Admin sign-in uses the backend email/password flow. Set `DRHAIR_BACKEND_URL` to the API origin and `ADMIN_PUBLIC_URL` to this panel's origin before deployment.
 
 ## Structure
 
@@ -30,7 +30,7 @@ src/
       types/                   # Shared role, record, and feature types
 ```
 
-Feature screens stay grouped by domain. Shared UI and role/access rules live in `shared/`; sample records live behind `demo-data.ts`. Server Route Handlers proxy authenticated requests so JWTs remain in an HttpOnly cookie. Registered patient profiles load from the paginated backend API; clinical assessments and other operations still use sample records until their APIs are connected.
+Feature screens stay grouped by domain. Shared UI and role/access rules live in `shared/`; sample records live behind `demo-data.ts`. Server Route Handlers proxy authenticated requests so JWTs remain in an HttpOnly cookie.
 
 ## Demo behavior
 
@@ -40,7 +40,11 @@ Feature screens stay grouped by domain. Shared UI and role/access rules live in 
 - Clinic appointments are browser previews from staff and sample app sources. The Flutter app has a separate local physical visit request flow for Dr. Jai Bansal; requests do not sync yet.
 - Content/product forms, search, status filters, and record detail dialogs use local sample data.
 - The current backend admin role has no granular server-side permissions, so the connected panel exposes the patient directory as read-only. Other operational screens remain UI previews and do not persist to the backend.
-- Admin media uploads can use `/api/admin/media/upload`; the route streams multipart data to the shared Cloudinary upload endpoint without exposing the admin session token to browser JavaScript. Save a returned video URL as a draft through `/api/admin/media/videos`.
+- Admin image uploads use `/api/admin/media/upload` and the backend's private R2 bucket. Video content is added as a YouTube URL and streams from YouTube.
+
+## Cloudflare deployment
+
+GitHub Actions runs lint and a production build on pull requests and `main` pushes. Deployments are manual; staging is the default target and production requires the explicit `CLOUDFLARE_PRODUCTION_DEPLOY_ENABLED=true` environment variable. Configure `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `DRHAIR_BACKEND_URL`, and `ADMIN_PUBLIC_URL` as GitHub environment secrets before deployment.
 
 ## Brand
 

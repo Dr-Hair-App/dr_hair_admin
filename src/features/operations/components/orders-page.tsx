@@ -21,7 +21,7 @@ interface BackendOrder {
   items?: Array<{ title?: string; name?: string; quantity?: number; price?: number }>;
   pricing?: { total?: number; subtotal?: number; discount?: number; delivery_fee?: number; tax?: number; coupon_code?: string };
   shipping_address?: { name?: string; phone?: string; house_number?: string; street?: string; city?: string; state?: string; pincode?: string; formattedAddress?: string };
-  payment?: { payment_status?: string; gateway?: string; gateway_status?: string; transaction_id?: string; refund_amount?: number; refund_id?: string; refund_status?: "pending" | "processed" | "failed" | ""; refund_pending_amount?: number; refunds?: Array<{ id?: string; amount?: number; currency?: string; status?: "pending" | "processed" | "failed"; updated_at?: string }>; last_failure_code?: string };
+  payment?: { payment_status?: string; gateway?: string; gateway_status?: string; transaction_id?: string; refund_amount?: number; refund_id?: string; refund_status?: "pending" | "processed" | "failed" | ""; refund_pending_amount?: number; refunds?: Array<{ id?: string; amount?: number; currency?: string; status?: "pending" | "processed" | "failed"; updated_at?: string }>; payment_attempts?: Array<{ payment_id?: string; amount?: number; currency?: string; method?: string; status?: string; failure_code?: string; attempted_at?: string }>; last_failure_code?: string };
   fulfillment?: { status?: string; courier?: string; tracking_number?: string; tracking_url?: string; shiprocket_status?: string; shiprocket_shipment_id?: string; shiprocket_return_shipment_id?: string; shiprocket_return_awb?: string; shiprocket_pickup_status?: string; shiprocket_rate?: number; shiprocket_eta?: string; shiprocket_label_url?: string; shiprocket_manifest_url?: string; cancellation_reason?: string; return_reason?: string };
   timeline?: Array<{ label?: string; timestamp?: string; done?: boolean }>;
   created_at?: string;
@@ -59,6 +59,10 @@ function mapBackendOrder(apiOrder: BackendOrder): OrderRecord {
   const total = apiOrder.pricing?.total ?? apiOrder.total ?? 0;
   const addr = apiOrder.shipping_address;
   const formattedAddr = addr?.formattedAddress || (addr ? `${addr.house_number || ""}, ${addr.street || ""}, ${addr.city || ""}` : "");
+  const providerState = `${apiOrder.fulfillment?.shiprocket_status || ""} ${apiOrder.fulfillment?.shiprocket_pickup_status || ""}`;
+  const needsAttention = apiOrder.payment?.refund_status === "failed" || apiOrder.payment?.refund_status === "pending" ||
+    (apiOrder.payment?.gateway_status === "failed_attempt" && apiOrder.payment?.payment_status === "Pending") ||
+    /needs_review|processing|fail|error|exception/i.test(providerState);
 
   return {
     id: apiOrder.order_id || apiOrder.id || "",
@@ -69,7 +73,7 @@ function mapBackendOrder(apiOrder: BackendOrder): OrderRecord {
     date: apiOrder.created_at || apiOrder.date || new Date().toISOString(),
     amount: `₹${total.toLocaleString("en-IN")}`,
     totalAmount: total,
-    status: (apiOrder.fulfillment?.status || apiOrder.status || "New") as OrderFulfillmentStatus,
+    status: needsAttention ? "Needs attention" : (apiOrder.fulfillment?.status || apiOrder.status || "New") as OrderFulfillmentStatus,
     paymentStatus: (apiOrder.payment?.payment_status || apiOrder.payment_status || "Pending") as OrderPaymentStatus,
     paymentMethod: apiOrder.payment?.gateway === "razorpay"
       ? "Online Gateway"
@@ -100,6 +104,15 @@ function mapBackendOrder(apiOrder: BackendOrder): OrderRecord {
       currency: String(refund.currency || "INR"),
       status: refund.status || "pending",
       updatedAt: refund.updated_at,
+    })),
+    paymentAttempts: (apiOrder.payment?.payment_attempts || []).map((attempt) => ({
+      id: String(attempt.payment_id || ""),
+      amount: Number(attempt.amount) || 0,
+      currency: String(attempt.currency || "INR"),
+      method: attempt.method,
+      status: String(attempt.status || "unknown"),
+      failureCode: attempt.failure_code,
+      attemptedAt: attempt.attempted_at,
     })),
     gatewayAttemptStatus: apiOrder.payment?.gateway_status || "",
     gatewayFailureCode: apiOrder.payment?.last_failure_code || "",
@@ -648,6 +661,7 @@ function OrderDetails({ order, relatedOrders }: { order: OrderRecord; relatedOrd
     <div className="order-total-card"><MoneyLine label="Subtotal" amount={order.subtotal ?? 0} /><MoneyLine label="Discount" amount={-(order.discount ?? 0)} />{order.couponCode && <MoneyLine label="Coupon code" text={order.couponCode} />}<MoneyLine label="Shipping" amount={order.shipping ?? 0} /><MoneyLine label="Tax" amount={order.tax ?? 0} /><MoneyLine label="Order total" amount={0} totalText={formatCurrency(parseAmount(order))} />{(order.refundAmount ?? 0) > 0 && <MoneyLine label="Refunded" amount={-(order.refundAmount ?? 0)} />}</div>
     <div className="order-detail-grid"><div className="detail-item"><span>Payment method</span><strong>{order.paymentMethod ?? "Not recorded"}</strong></div><div className="detail-item"><span>Payment state</span><StatusPill status={order.paymentStatus ?? "Pending"} /></div>{order.paymentReference && <div className="detail-item"><span>Razorpay payment reference</span><strong>{order.paymentReference}</strong></div>}{order.gatewayAttemptStatus === "failed_attempt" && <div className="detail-item"><span>Latest payment attempt</span><strong>Failed{order.gatewayFailureCode ? ` · ${order.gatewayFailureCode}` : ""}{order.paymentStatus === "Pending" ? "; customer may retry payment" : "; saved order payment state is unchanged"}</strong></div>}{order.refundStatus && <div className="detail-item"><span>Razorpay refund</span><strong>{order.refundStatus === "pending" ? `Pending · ${formatCurrency(order.refundPendingAmount ?? 0)}` : order.refundStatus}</strong></div>}{order.refundReference && <div className="detail-item"><span>Latest refund reference</span><strong>{order.refundReference}</strong></div>}<div className="detail-item"><span>Fulfilment</span><StatusPill status={order.status} /></div><div className="detail-item"><span>Courier & tracking</span><strong>{order.courier ? `${order.courier} · ${order.trackingNumber ?? "No tracking number"}` : "Not dispatched"}</strong></div><div className="detail-item order-address"><span><MapPin size={12} /> Delivery address</span><strong>{order.shippingAddress ?? "Not recorded"}</strong></div>{order.refundReason && <div className="detail-item"><span>Last refund reason</span><strong>{order.refundReason}</strong></div>}{order.cancellationReason && <div className="detail-item"><span>Cancellation reason</span><strong>{order.cancellationReason}</strong></div>}{order.returnReason && <div className="detail-item"><span>Return reason</span><strong>{order.returnReason}</strong></div>}</div>
     {!!order.refundHistory?.length && <div className="order-detail-block"><div className="field-heading"><Undo2 size={14} />Refund history</div>{order.refundHistory.map((refund) => <div className="order-line-item" key={refund.id}><div><strong>{refund.id}</strong><span>{refund.status}{refund.updatedAt ? ` · ${new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(refund.updatedAt))}` : ""}</span></div><strong>{formatCurrency(refund.amount)}</strong></div>)}</div>}
+    {!!order.paymentAttempts?.length && <div className="order-detail-block"><div className="field-heading"><CreditCard size={14} />Payment attempts</div>{order.paymentAttempts.map((attempt) => <div className="order-line-item" key={attempt.id}><div><strong>{attempt.id}</strong><span>{attempt.status}{attempt.method ? ` · ${attempt.method}` : ""}{attempt.failureCode ? ` · ${attempt.failureCode}` : ""}{attempt.attemptedAt ? ` · ${new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(attempt.attemptedAt))}` : ""}</span></div><strong>{formatCurrency(attempt.amount)}</strong></div>)}</div>}
     <div className="order-detail-block"><div className="field-heading"><Activity size={14} />Order history</div><div className="order-timeline">{(order.timeline ?? []).map((event, index) => <div className="order-timeline-item" key={`${event.label}-${index}`}><span className={event.done ? "done" : ""}>{event.done ? <Check size={11} /> : <span />}</span><div><strong>{event.label}</strong><small>{event.date}</small></div></div>)}</div></div>
   </>;
 }

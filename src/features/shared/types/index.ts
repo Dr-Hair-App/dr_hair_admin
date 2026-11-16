@@ -121,6 +121,7 @@ export interface OrderRecord {
   paymentReference?: string;
   refundReference?: string;
   refundHistory?: { id: string; amount: number; currency: string; status: "pending" | "processed" | "failed"; updatedAt?: string }[];
+  paymentAttempts?: { id: string; amount: number; currency: string; method?: string; status: string; failureCode?: string; attemptedAt?: string }[];
   gatewayAttemptStatus?: string;
   gatewayFailureCode?: string;
   refundReason?: string;

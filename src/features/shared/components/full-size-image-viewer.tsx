@@ -31,13 +31,7 @@ export function FullSizeImageViewer({ image, onClose }: { image: ViewerImage | n
 
   if (!image) return null;
 
-  const canDownloadFromCloudinary = (() => {
-    try {
-      const url = new URL(image.src);
-      return url.protocol === "https:" && url.hostname === "res.cloudinary.com" && url.pathname.includes("/image/upload/");
-    } catch { return false; }
-  })();
-  const downloadUrl = image.downloadHref || (canDownloadFromCloudinary ? `/api/admin/media/image-download?src=${encodeURIComponent(image.src)}&name=${encodeURIComponent(image.fileName)}` : null);
+  const downloadUrl = image.downloadHref || image.src;
   return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/85 p-3 backdrop-blur-sm sm:p-6" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="relative flex max-h-[94dvh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#101827] shadow-2xl" role="dialog" aria-modal="true" aria-label={`Image preview: ${image.alt}`}>
       <header className="flex min-w-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-3 text-white sm:px-5">

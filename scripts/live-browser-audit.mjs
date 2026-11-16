@@ -2,7 +2,7 @@ import { chromium } from 'playwright';
 import path from 'node:path';
 import fs from 'node:fs';
 
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = 'http://localhost:3001';
 const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
 // Generate Super Admin JWT token

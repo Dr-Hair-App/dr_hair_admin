@@ -209,7 +209,7 @@ export default function DeleteAccountPage() {
                 <tr>
                   <td className="p-3 font-semibold text-[#1A365D]">Scalp Photographs</td>
                   <td className="p-3 text-[#444655]">All uploaded hairline, crown, and vertex photos.</td>
-                  <td className="p-3 text-[#596E8C]">Cloudinary Encrypted Vault</td>
+                  <td className="p-3 text-[#596E8C]">Private Cloudflare R2 storage</td>
                 </tr>
                 <tr>
                   <td className="p-3 font-semibold text-[#1A365D]">Hair Assessment</td>

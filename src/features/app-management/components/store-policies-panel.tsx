@@ -84,7 +84,7 @@ export function StorePoliciesPanel({ onToast }: { onToast: (message: string) => 
     if (typeof window !== "undefined") {
       return `${window.location.origin}${path}`;
     }
-    return `https://adminpanal-ruby.vercel.app${path}`;
+    return path;
   };
 
   const copyToClipboard = async (id: string, path: string) => {
