@@ -9,7 +9,7 @@ export async function PUT(
     const { id } = await params;
     const token = request.headers.get("authorization") || "";
     const body = await request.json();
-    const upstream = await fetch(backendUrl(`/api/v1/categories/${encodeURIComponent(id)}`), {
+    const upstream = await fetch(backendUrl(`/api/v1/admin/categories/${encodeURIComponent(id)}`), {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -33,7 +33,7 @@ export async function DELETE(
   try {
     const { id } = await params;
     const token = request.headers.get("authorization") || "";
-    const upstream = await fetch(backendUrl(`/api/v1/categories/${encodeURIComponent(id)}`), {
+    const upstream = await fetch(backendUrl(`/api/v1/admin/categories/${encodeURIComponent(id)}`), {
       method: "DELETE",
       headers: {
         Accept: "application/json",

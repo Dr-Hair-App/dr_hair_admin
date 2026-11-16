@@ -210,7 +210,7 @@ export function HeaderSearch({
 
         // Process Patients
         if (usersRes.status === "fulfilled" && usersRes.value.ok) {
-          const json = await usersRes.value.json().catch(() => ({}));
+          const json = (await usersRes.value.json().catch(() => ({}))) as Record<string, any>;
           const items = Array.isArray(json?.data?.items) ? json.data.items : [];
           setPatients(
             items.map((u: Record<string, unknown>) => ({
@@ -229,7 +229,7 @@ export function HeaderSearch({
 
         // Process Products
         if (productsRes.status === "fulfilled" && productsRes.value.ok) {
-          const json = await productsRes.value.json().catch(() => ({}));
+          const json = (await productsRes.value.json().catch(() => ({}))) as Record<string, any>;
           const items = Array.isArray(json?.data?.items)
             ? json.data.items
             : Array.isArray(json?.data)
@@ -252,7 +252,7 @@ export function HeaderSearch({
 
         // Process Appointments
         if (appointmentsRes.status === "fulfilled" && appointmentsRes.value.ok) {
-          const json = await appointmentsRes.value.json().catch(() => ({}));
+          const json = (await appointmentsRes.value.json().catch(() => ({}))) as Record<string, any>;
           const items = Array.isArray(json?.data?.items) ? json.data.items : [];
           setBookings(
             items.map((b: Record<string, unknown>) => ({

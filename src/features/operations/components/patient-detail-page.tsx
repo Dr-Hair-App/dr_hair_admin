@@ -148,7 +148,7 @@ export function PatientDetailPage({ patientId, role, onToast, onAudit }: { patie
     fetch("/api/admin/products", { cache: "no-store", signal: controller.signal })
       .then(async (res) => {
         if (!res.ok) throw new Error("The product catalog could not be loaded.");
-        const json = await res.json().catch(() => ({}));
+        const json = (await res.json().catch(() => ({}))) as Record<string, any>;
         const items = json?.data?.items || json?.data || [];
         if (!Array.isArray(items)) throw new Error("The product catalog response is invalid.");
         const mapped: CareProductOption[] = items

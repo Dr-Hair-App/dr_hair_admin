@@ -37,7 +37,7 @@ export function SignIn({ onAuthenticated }: { onAuthenticated: (admin: AdminIden
         body: JSON.stringify({ email: loginId.trim(), password }),
         cache: "no-store",
       });
-      const result = await response.json().catch(() => ({}));
+      const result = (await response.json().catch(() => ({}))) as Record<string, any>;
       const admin = result?.admin as AdminIdentity | undefined;
       if (
         !response.ok

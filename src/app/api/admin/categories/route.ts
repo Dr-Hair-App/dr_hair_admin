@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
   try {
     const token = request.headers.get("authorization") || "";
     const body = await request.json();
-    const upstream = await fetch(backendUrl("/api/v1/categories"), {
+    const upstream = await fetch(backendUrl("/api/v1/admin/categories"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
