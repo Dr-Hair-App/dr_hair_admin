@@ -65,6 +65,7 @@ export function Dashboard({ role, onNavigate, onOpenPatient, permissions = [], o
   const [registeredPatientTotal, setRegisteredPatientTotal] = useState(0);
   const [registeredPatientsState, setRegisteredPatientsState] = useState<"loading" | "ready" | "error">("loading");
   const [liveBookings, setLiveBookings] = useState<BookingRecord[]>([]);
+  const [clinicDoctorName, setClinicDoctorName] = useState("");
   const [liveBookingsLoaded, setLiveBookingsLoaded] = useState(false);
   const effectiveBookings = liveBookingsLoaded ? liveBookings : [];
   const today = new Date().toDateString();
@@ -108,6 +109,19 @@ export function Dashboard({ role, onNavigate, onOpenPatient, permissions = [], o
 
   useEffect(() => {
     const controller = new AbortController();
+    fetch("/api/admin/appointments/schedule", { cache: "no-store", signal: controller.signal })
+      .then((response) => response.ok ? response.json() : null)
+      .then((result) => {
+        if (!controller.signal.aborted && typeof result?.data?.doctor_name === "string") {
+          setClinicDoctorName(result.data.doctor_name);
+        }
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
     fetch("/api/admin/appointments", { cache: "no-store", signal: controller.signal })
       .then(async (res) => {
         if (!res.ok) {
@@ -122,16 +136,16 @@ export function Dashboard({ role, onNavigate, onOpenPatient, permissions = [], o
           customer: String(item.customer || item.name || "Patient"),
           patientId: String(item.patientId || item.patient_code || item.userId || ""),
           patientCode: typeof item.patient_code === "string" ? item.patient_code : undefined,
-          service: String(item.service || item.reason || "Clinic consultation"),
+          service: String(item.service || item.reason || ""),
           date: String(item.date || ""),
           startsAt: typeof item.startsAt === "string" ? item.startsAt : (typeof item.starts_at === "string" ? item.starts_at : undefined),
           status: (item.status || item.opdStatus || "Requested") as BookingRecord["status"],
           source: (item.source || "App") as BookingRecord["source"],
-          doctorName: String(item.doctorName || item.doctor_name || "Dr. Jai Bansal"),
-          room: typeof item.room === "string" ? item.room : "Room 101 - Chamber A",
+          doctorName: String(item.doctorName || item.doctor_name || ""),
+          room: typeof item.room === "string" ? item.room : "",
           tokenNumber: typeof item.tokenNumber === "string" ? item.tokenNumber : (typeof item.opd_token === "string" ? item.opd_token : undefined),
           opdStatus: (item.opdStatus || item.status || "Confirmed") as BookingRecord["opdStatus"],
-          consultationFee: typeof item.consultationFee === "number" ? item.consultationFee : (typeof item.consultation_fee === "number" ? item.consultation_fee : 500),
+          consultationFee: typeof item.consultationFee === "number" ? item.consultationFee : (typeof item.consultation_fee === "number" ? item.consultation_fee : undefined),
           paymentStatus: typeof item.paymentStatus === "string" ? item.paymentStatus : (typeof item.payment_status === "string" ? item.payment_status : "Pending"),
           paymentMethod: typeof item.paymentMethod === "string" ? item.paymentMethod : (typeof item.payment_method === "string" ? item.payment_method : "UPI"),
           paymentTransactionId: typeof item.paymentTransactionId === "string" ? item.paymentTransactionId : (typeof item.payment_transaction_id === "string" ? item.payment_transaction_id : undefined),
@@ -276,7 +290,7 @@ export function Dashboard({ role, onNavigate, onOpenPatient, permissions = [], o
             ? String(serverSummary?.appointments?.today ?? appointmentsToday.length)
             : "—"
         }
-        trend={permitted("bookings.manage") ? "Dr. Jai Bansal" : "No access"}
+        trend={permitted("bookings.manage") ? (clinicDoctorName || "Clinic schedule") : "No access"}
         foot={
           permitted("bookings.manage")
             ? serverSummary
@@ -649,9 +663,9 @@ function AppointmentPatientCard({ booking, onClick }: {
           </div>
           <p className="mt-0.5 truncate text-xs text-slate-500">{booking.service}</p>
           <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-400">
-            <span>{booking.doctorName || "Dr. Jai Bansal"}</span>
+            <span>{booking.doctorName || "Clinic team"}</span>
             <span>·</span>
-            <span>{booking.room || "Chamber A"}</span>
+            <span>{booking.room || "Location pending"}</span>
           </div>
         </div>
       </div>

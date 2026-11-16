@@ -1,37 +1,41 @@
 "use client";
 
-import { BadgePercent, Package, ShoppingBag } from "lucide-react";
+import { BadgePercent, Package, ShoppingBag, TrendingUp } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "../../shared/components/ui";
 import type { CouponRecord, ProductRecord, ProductStatus, ProductBenefit, ProductIngredient, ProductUsageStep, ProductClinicalClaim } from "../types";
 import { CouponsPanel } from "./coupons-panel";
+import { CommerceOverview } from "./commerce-overview";
 import { ProductsPanel } from "./products-panel";
 import { OrdersPage } from "../../operations/components/orders-page";
 import type { AdminPermissionId } from "../../shared/types";
 import type { PanelFeatureAccess } from "../../shared/lib/permissions";
 
-type CommerceTab = "products" | "orders" | "coupons";
+type CommerceTab = "overview" | "products" | "orders" | "coupons";
 const nonNegativeNumber = (value: unknown, fallback = 0) => {
   const number = Number(value);
   return Number.isFinite(number) ? Math.max(0, number) : fallback;
 };
 const tabs: { id: CommerceTab; label: string; icon: typeof Package }[] = [
+  { id: "overview", label: "Overview", icon: TrendingUp },
   { id: "products", label: "Products", icon: Package },
   { id: "orders", label: "Orders", icon: ShoppingBag },
   { id: "coupons", label: "Coupons", icon: BadgePercent },
 ];
 
 export function ProductManagement({ onToast, permissions, panelAccess, globalSearch, onAudit }: { onToast: (message: string) => void; permissions: AdminPermissionId[]; panelAccess: PanelFeatureAccess; globalSearch: string; onAudit: (action: string, target: string) => void }) {
-  const [activeTab, setActiveTab] = useState<CommerceTab>("products");
+  const [activeTab, setActiveTab] = useState<CommerceTab>("overview");
   const [createProductOpen, setCreateProductOpen] = useState(false);
   const [products, setProducts] = useState<ProductRecord[]>([]);
   const [coupons, setCoupons] = useState<CouponRecord[]>([]);
   const canManageProducts = permissions.includes("products.manage") && panelAccess.catalog !== false;
   const canManageOrders = permissions.includes("orders.manage") && panelAccess.orders !== false;
   const canManagePromotions = permissions.includes("promotions.manage") && panelAccess.catalog !== false;
-  const availableTabs = useMemo(() => tabs.filter((tab) => tab.id === "products" ? canManageProducts
+  const canViewCommerceReports = permissions.includes("orders.manage");
+  const availableTabs = useMemo(() => tabs.filter((tab) => tab.id === "overview" ? canViewCommerceReports
+    : tab.id === "products" ? canManageProducts
     : tab.id === "orders" ? canManageOrders
-    : canManagePromotions), [canManageOrders, canManageProducts, canManagePromotions]);
+    : canManagePromotions), [canManageOrders, canManageProducts, canManagePromotions, canViewCommerceReports]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -92,6 +96,12 @@ export function ProductManagement({ onToast, permissions, panelAccess, globalSea
                     ...plan,
                     stock: nonNegativeNumber(plan.stock),
                     lowStockThreshold: nonNegativeNumber(plan.lowStockThreshold ?? plan.low_stock_threshold, 10),
+                    shippingProfile: {
+                      weightKg: Number((plan.shipping_profile as Record<string, unknown> | undefined)?.weight_kg ?? (plan.shippingProfile as Record<string, unknown> | undefined)?.weightKg) || 0,
+                      lengthCm: Number((plan.shipping_profile as Record<string, unknown> | undefined)?.length_cm ?? (plan.shippingProfile as Record<string, unknown> | undefined)?.lengthCm) || 0,
+                      breadthCm: Number((plan.shipping_profile as Record<string, unknown> | undefined)?.breadth_cm ?? (plan.shippingProfile as Record<string, unknown> | undefined)?.breadthCm) || 0,
+                      heightCm: Number((plan.shipping_profile as Record<string, unknown> | undefined)?.height_cm ?? (plan.shippingProfile as Record<string, unknown> | undefined)?.heightCm) || 0,
+                    },
                   })) as ProductRecord["supplyPlans"]
                 : [],
               benefits: Array.isArray(raw.benefits)
@@ -131,7 +141,7 @@ export function ProductManagement({ onToast, permissions, panelAccess, globalSea
   }, [refreshProducts]);
 
   const resolvedActiveTab = availableTabs.some((tab) => tab.id === activeTab) ? activeTab : availableTabs[0]?.id ?? "products";
-  const tabLabel = tabs.find((tab) => tab.id === resolvedActiveTab)?.label ?? "Overview";
+  const tabLabel = tabs.find((tab) => tab.id === resolvedActiveTab)?.label ?? "Commerce";
   const selectTab = (tab: CommerceTab) => {
     if (!availableTabs.some((item) => item.id === tab)) {
       onToast("This admin account does not have access to that commerce section.");
@@ -147,6 +157,7 @@ export function ProductManagement({ onToast, permissions, panelAccess, globalSea
     </div>
     <div className="commerce-content" aria-label={`${tabLabel} section`}>
       {availableTabs.length === 0 && <div className="empty-state">No commerce sections are available for this account.</div>}
+      {resolvedActiveTab === "overview" && canViewCommerceReports && <CommerceOverview products={products} coupons={coupons} onNavigate={selectTab} />}
       {resolvedActiveTab === "products" && canManageProducts && <ProductsPanel products={products} onProductsChange={(updater) => { setProducts(updater); onAudit("updated product catalog", "Product records"); }} createProductOpen={createProductOpen} onCreateHandled={() => setCreateProductOpen(false)} onToast={onToast} onRefresh={refreshProducts} />}
       {resolvedActiveTab === "orders" && canManageOrders && <OrdersPage globalSearch={globalSearch} onToast={onToast} onAudit={onAudit} canExport={permissions.includes("commerce.export")} />}
       {resolvedActiveTab === "coupons" && canManagePromotions && <CouponsPanel coupons={coupons} products={products} onCouponsChange={(updater) => { setCoupons(updater); onAudit("updated commerce promotions", "Coupon records"); }} onToast={onToast} />}

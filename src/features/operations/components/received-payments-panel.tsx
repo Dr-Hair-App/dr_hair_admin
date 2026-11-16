@@ -18,6 +18,10 @@ export interface PaymentItem {
   status: string;
   transaction_id?: string | null;
   intent_id?: string | null;
+  refund_status?: "pending" | "processed" | "failed" | "";
+  refund_amount?: number;
+  refund_pending_amount?: number;
+  refunds?: { id: string; amount: number; status: "pending" | "processed" | "failed"; updated_at?: string }[];
   created_at: string;
 }
 
@@ -74,7 +78,7 @@ export function ReceivedPaymentsPanel({ onToast }: { onToast: (message: string) 
   }, [onToast, page, search, statusFilter, typeFilter]);
 
   useEffect(() => {
-    fetchPayments();
+    void Promise.resolve().then(fetchPayments);
   }, [fetchPayments]);
 
   const copyToClipboard = (text: string, label: string) => {
@@ -299,6 +303,11 @@ export function ReceivedPaymentsPanel({ onToast }: { onToast: (message: string) 
 
                       <td className="py-3.5 px-4 text-right font-bold text-slate-800 whitespace-nowrap">
                         ₹{Number(payment.amount).toLocaleString("en-IN")}
+                        {((payment.refund_amount ?? 0) > 0 || (payment.refund_pending_amount ?? 0) > 0) && (
+                          <div className="mt-1 text-[10px] font-medium text-rose-600">
+                            {payment.refund_status === "pending" ? `₹${Number(payment.refund_pending_amount).toLocaleString("en-IN")} refund pending` : `₹${Number(payment.refund_amount).toLocaleString("en-IN")} refunded`}
+                          </div>
+                        )}
                       </td>
 
                       <td className="py-3.5 px-4 text-center">
@@ -382,6 +391,30 @@ export function ReceivedPaymentsPanel({ onToast }: { onToast: (message: string) 
                 <span className="text-slate-500">Gateway:</span>
                 <span className="font-semibold text-slate-800 uppercase">{selectedPayment.gateway}</span>
               </div>
+              {((selectedPayment.refund_amount ?? 0) > 0 || (selectedPayment.refund_pending_amount ?? 0) > 0) && (
+                <div className="border-t border-slate-200 pt-2 space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Refund state:</span>
+                    <span className="font-semibold text-rose-700">{selectedPayment.refund_status || "Recorded"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Processed refunds:</span>
+                    <span className="font-semibold text-slate-800">₹{Number(selectedPayment.refund_amount).toLocaleString("en-IN")}</span>
+                  </div>
+                  {(selectedPayment.refund_pending_amount ?? 0) > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Awaiting provider:</span>
+                      <span className="font-semibold text-amber-700">₹{Number(selectedPayment.refund_pending_amount).toLocaleString("en-IN")}</span>
+                    </div>
+                  )}
+                  {selectedPayment.refunds?.map((refund) => (
+                    <div key={refund.id} className="flex justify-between gap-3 text-[11px]">
+                      <span className="truncate text-slate-500">{refund.id}</span>
+                      <span className="shrink-0 text-slate-700">₹{Number(refund.amount).toLocaleString("en-IN")} · {refund.status}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-slate-500">Customer:</span>
                 <span className="font-semibold text-slate-800">{selectedPayment.customer_name}</span>

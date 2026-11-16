@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   AlertTriangle,
   Archive,
@@ -11,8 +11,6 @@ import {
   BadgeCheck,
   Boxes,
   Check,
-  Eye,
-  FileText,
   ImagePlus,
   Layers,
   Loader2,
@@ -23,7 +21,6 @@ import {
   RefreshCw,
   RotateCcw,
   Search,
-  Sparkles,
   Star,
   Trash2,
   TrendingUp,
@@ -70,33 +67,23 @@ interface PreviewMedia extends ProductMedia {
   url: string;
 }
 
-const rootCauseOptions = ["Hair", "Dandruff", "Gut", "Stress", "Thyroid", "PCOS", "Hormone"];
-const categoryOptions = [
-  "Hair growth",
-  "Scalp care",
-  "Hair care",
-  "Bundles",
-  "Therapeutic Cleanser",
-  "Endocrine Support",
-  "Anti-Androgen",
-];
-
 function generateUniqueSku(prefix = "DRH"): string {
   const randomNum = Math.floor(1000 + Math.random() * 9000);
   return `${prefix}-${randomNum}`;
 }
 
-const newPlan = (basePrice = 499, baseMrp = 699, skuPrefix = "DRH"): ProductSupplyPlan => ({
+const newPlan = (): ProductSupplyPlan => ({
   id: `plan-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-  title: "1 Month",
-  subtitle: "Standard Supply",
-  sku: generateUniqueSku(skuPrefix),
-  price: basePrice,
-  mrp: baseMrp,
-  unitCost: Math.round(basePrice * 0.3),
-  stock: 100,
-  lowStockThreshold: 10,
+  title: "",
+  subtitle: "",
+  sku: generateUniqueSku(),
+  price: 0,
+  mrp: 0,
+  unitCost: 0,
+  stock: 0,
+  lowStockThreshold: 0,
   badge: "",
+  shippingProfile: { weightKg: 0, lengthCm: 0, breadthCm: 0, heightCm: 0 },
 });
 
 function getPlans(product: ProductRecord): ProductSupplyPlan[] {
@@ -110,9 +97,10 @@ function getPlans(product: ProductRecord): ProductSupplyPlan[] {
       price: product.price || 0,
       mrp: product.compareAtPrice || product.price || 0,
       unitCost: product.unitCost || 0,
-      stock: product.stock ?? 100,
-      lowStockThreshold: 10,
+      stock: product.stock ?? 0,
+      lowStockThreshold: 0,
       badge: "",
+      shippingProfile: { weightKg: 0, lengthCm: 0, breadthCm: 0, heightCm: 0 },
     },
   ];
 }
@@ -145,29 +133,16 @@ function formFor(product: ProductRecord | null): ProductFormState {
     const initialSku = generateUniqueSku("DRH");
     return {
       name: "",
-      category: "Hair growth",
+      category: "",
       description: "",
       status: "Active",
-      price: 499,
-      mrp: 699,
-      unitCost: 150,
-      stock: 100,
+      price: 0,
+      mrp: 0,
+      unitCost: 0,
+      stock: 0,
       sku: initialSku,
-      rootCauses: ["Hair"],
-      supplyPlans: [
-        {
-          id: `plan-${Date.now()}-1`,
-          title: "1 Month",
-          subtitle: "Standard Supply",
-          sku: initialSku,
-          price: 499,
-          mrp: 699,
-          unitCost: 150,
-          stock: 100,
-          lowStockThreshold: 10,
-          badge: "",
-        },
-      ],
+      rootCauses: [],
+      supplyPlans: [{ ...newPlan(), sku: initialSku }],
       benefitsText: "",
       ingredientsText: "",
       usageStepsText: "",
@@ -197,7 +172,7 @@ function formFor(product: ProductRecord | null): ProductFormState {
     unitCost: primary.unitCost || product.unitCost || 0,
     stock: productStock(product),
     sku: primary.sku || product.sku || generateUniqueSku(),
-    rootCauses: product.rootCauses ?? ["Hair"],
+    rootCauses: product.rootCauses ?? [],
     supplyPlans: plans,
     benefitsText: asLines<ProductBenefit>(product.benefits, (item) => `${item.title} | ${item.description}`),
     ingredientsText: asLines<ProductIngredient>(product.ingredients, (item) => `${item.name} | ${item.concentration} | ${item.purpose}`),
@@ -240,6 +215,8 @@ export function ProductsPanel({
   const [deleteProduct, setDeleteProduct] = useState<ProductRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [movements, setMovements] = useSessionState<StockMovement[]>("drhair-commerce-stock-movements", []);
+  const categoryOptions = useMemo(() => [...new Set(products.map((product) => product.category.trim()).filter(Boolean))].sort(), [products]);
+  const rootCauseOptions = useMemo(() => [...new Set(products.flatMap((product) => product.rootCauses ?? []).map((item) => item.trim()).filter(Boolean))].sort(), [products]);
 
   const visibleProducts = products.filter(
     (product) =>
@@ -257,7 +234,7 @@ export function ProductsPanel({
       const isLead = idx === 0;
       return {
         ...plan,
-        title: plan.title.trim() || (isLead ? "1 Month" : `Plan ${idx + 1}`),
+        title: plan.title.trim(),
         subtitle: plan.subtitle.trim(),
         sku: (plan.sku.trim() || form.sku.trim() || generateUniqueSku()).toUpperCase(),
         price: isLead ? Math.round(Number(form.price)) : Math.round(Number(plan.price)),
@@ -265,6 +242,12 @@ export function ProductsPanel({
         unitCost: isLead ? Math.round(Number(form.unitCost)) : Math.round(Number(plan.unitCost)),
         stock: isLead ? Math.max(0, Math.floor(Number(form.stock))) : Math.max(0, Math.floor(Number(plan.stock))),
         lowStockThreshold: Math.max(0, Math.floor(Number(plan.lowStockThreshold))),
+        shippingProfile: {
+          weightKg: Number(plan.shippingProfile?.weightKg) || 0,
+          lengthCm: Number(plan.shippingProfile?.lengthCm) || 0,
+          breadthCm: Number(plan.shippingProfile?.breadthCm) || 0,
+          heightCm: Number(plan.shippingProfile?.heightCm) || 0,
+        },
         badge: plan.badge.trim(),
       };
     });
@@ -276,6 +259,15 @@ export function ProductsPanel({
     }
     if (!form.category) {
       throw new Error("Product category is required.");
+    }
+    if (form.rootCauses.length === 0) {
+      throw new Error("Add at least one concern tag so patients can find this product.");
+    }
+    if (plans.length === 0 || plans.some((plan) => !plan.title || plan.price <= 0 || plan.mrp < plan.price)) {
+      throw new Error("Add a named supply plan with a valid selling price and MRP.");
+    }
+    if (plans.some((plan) => Number(plan.shippingProfile?.weightKg) <= 0 || Number(plan.shippingProfile?.lengthCm) <= 0 || Number(plan.shippingProfile?.breadthCm) <= 0 || Number(plan.shippingProfile?.heightCm) <= 0)) {
+      throw new Error("Enter weight and parcel dimensions for every supply plan before publishing it.");
     }
     if (!Number.isFinite(form.price) || form.price <= 0) {
       throw new Error("Product selling price must be greater than 0.");
@@ -317,7 +309,7 @@ export function ProductsPanel({
       status: form.status,
       media: form.media,
       images: imageUrls,
-      rootCauses: form.rootCauses.length > 0 ? form.rootCauses : ["Hair"],
+      rootCauses: form.rootCauses,
       supplyPlans: plans,
       benefits,
       ingredients,
@@ -683,6 +675,8 @@ export function ProductsPanel({
       {(editorProduct !== null || createProductOpen) && (
         <ProductEditor
           product={editorProduct}
+          categoryOptions={categoryOptions}
+          rootCauseOptions={rootCauseOptions}
           onClose={() => {
             setEditorProduct(null);
             onCreateHandled();
@@ -772,11 +766,15 @@ export function ProductsPanel({
 
 function ProductEditor({
   product,
+  categoryOptions,
+  rootCauseOptions,
   onClose,
   onSave,
   onToast,
 }: {
   product: ProductRecord | null;
+  categoryOptions: string[];
+  rootCauseOptions: string[];
   onClose: () => void;
   onSave: (form: ProductFormState, existing: ProductRecord | null) => Promise<boolean>;
   onToast: (message: string) => void;
@@ -800,12 +798,20 @@ function ProductEditor({
   const [showAdvancedPlans, setShowAdvancedPlans] = useState(false);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [isGeneratingSku, setIsGeneratingSku] = useState(false);
+  const [rootCauseDraft, setRootCauseDraft] = useState("");
 
   const activeUrls = useRef<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const setField = <K extends keyof ProductFormState>(key: K, value: ProductFormState[K]) =>
     setForm((current) => ({ ...current, [key]: value }));
+  const allRootCauses = [...new Set([...rootCauseOptions, ...form.rootCauses])];
+  const addRootCause = () => {
+    const value = rootCauseDraft.trim();
+    if (!value || form.rootCauses.some((item) => item.toLowerCase() === value.toLowerCase())) return;
+    setField("rootCauses", [...form.rootCauses, value]);
+    setRootCauseDraft("");
+  };
 
   useEffect(() => () => activeUrls.current.forEach((url) => URL.revokeObjectURL(url)), []);
 
@@ -1092,6 +1098,11 @@ function ProductEditor({
       setFormError("Product category is required.");
       return;
     }
+    if (form.rootCauses.length === 0) {
+      setActiveTab("general");
+      setFormError("Add at least one concern tag so patients can find this product.");
+      return;
+    }
     if (!form.price || form.price <= 0) {
       setActiveTab("pricing");
       setFormError("Selling price must be greater than 0.");
@@ -1274,15 +1285,19 @@ function ProductEditor({
               </div>
               <div className="field">
                 <label htmlFor="product-category">Shop category *</label>
-                <select
+                <input
                   id="product-category"
+                  list="product-category-options"
                   value={form.category}
                   onChange={(event) => setField("category", event.target.value)}
-                >
+                  placeholder="Enter or choose a category"
+                  required
+                />
+                <datalist id="product-category-options">
                   {categoryOptions.map((cat) => (
-                    <option key={cat}>{cat}</option>
+                    <option key={cat} value={cat} />
                   ))}
-                </select>
+                </datalist>
               </div>
               <div className="field">
                 <label htmlFor="product-status">Store status</label>
@@ -1299,7 +1314,7 @@ function ProductEditor({
               <div className="field">
                 <span className="field-label">Concern tags (used for patient filtering)</span>
                 <div className="tag-choice-list">
-                  {rootCauseOptions.map((tag) => (
+                  {allRootCauses.map((tag) => (
                     <label key={tag} className={`tag-choice ${form.rootCauses.includes(tag) ? "selected" : ""}`}>
                       <input
                         type="checkbox"
@@ -1316,6 +1331,16 @@ function ProductEditor({
                       {tag}
                     </label>
                   ))}
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    aria-label="Add a concern tag"
+                    value={rootCauseDraft}
+                    onChange={(event) => setRootCauseDraft(event.target.value)}
+                    onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addRootCause(); } }}
+                    placeholder="Add another concern"
+                  />
+                  <button type="button" className="button button-secondary button-small" onClick={addRootCause} disabled={!rootCauseDraft.trim()}>Add</button>
                 </div>
               </div>
               <div className="field field-span">
@@ -1456,7 +1481,7 @@ function ProductEditor({
                 onClick={() => setShowAdvancedPlans(!showAdvancedPlans)}
               >
                 <PackagePlus size={14} />
-                {showAdvancedPlans ? "Hide multi-month bundle plans" : "Add multi-month supply plans (3 Months / 6 Months)"}
+                {showAdvancedPlans ? "Hide additional supply plans" : "Add another supply plan"}
               </button>
 
               {showAdvancedPlans && (
@@ -1471,12 +1496,12 @@ function ProductEditor({
                       onClick={() =>
                         setField("supplyPlans", [
                           ...form.supplyPlans,
-                          newPlan(form.price * 3 * 0.9, form.mrp * 3, "DRH-BUNDLE"),
+                          newPlan(),
                         ])
                       }
                     >
                       <Plus size={13} />
-                      Add bundle plan
+                      Add supply plan
                     </button>
                   </div>
 
@@ -1507,7 +1532,7 @@ function ProductEditor({
                             <input
                               value={plan.title}
                               onChange={(e) => updatePlan(index, "title", e.target.value)}
-                              placeholder="3 Months"
+                              placeholder="Enter plan name"
                             />
                           </div>
                           <div className="field">
@@ -1552,6 +1577,33 @@ function ProductEditor({
                               onChange={(e) => updatePlan(index, "mrp", e.target.value)}
                             />
                           </div>
+                          <div className="field field-span">
+                            <label>Parcel for this supply plan</label>
+                            <p className="text-[11px] text-slate-500">Enter the packed parcel measurements. The checkout courier quote uses these values for this plan.</p>
+                          </div>
+                          {([
+                            ["weightKg", "Weight (kg)"],
+                            ["lengthCm", "Length (cm)"],
+                            ["breadthCm", "Breadth (cm)"],
+                            ["heightCm", "Height (cm)"],
+                          ] as const).map(([field, label]) => (
+                            <div className="field" key={field}>
+                              <label>{label} *</label>
+                              <input
+                                type="number"
+                                min="0.01"
+                                step="0.01"
+                                value={plan.shippingProfile?.[field] || ""}
+                                onChange={(event) => {
+                                  const value = Number(event.target.value) || 0;
+                                  setField("supplyPlans", form.supplyPlans.map((item, planIndex) => planIndex === index
+                                    ? { ...item, shippingProfile: { weightKg: 0, lengthCm: 0, breadthCm: 0, heightCm: 0, ...item.shippingProfile, [field]: value } }
+                                    : item));
+                                }}
+                                required
+                              />
+                            </div>
+                          ))}
                         </div>
                       </article>
                     ))}
@@ -2011,6 +2063,12 @@ function ProductDetails({
               <strong className={plan.stock <= plan.lowStockThreshold ? "stock-low" : ""}>{plan.stock} units</strong>
               <small>Alert below {plan.lowStockThreshold}</small>
             </span>
+                          <span>
+                            <strong>{plan.shippingProfile?.weightKg ? `${plan.shippingProfile.weightKg} kg` : "Parcel setup needed"}</strong>
+                            <small>{plan.shippingProfile?.lengthCm && plan.shippingProfile?.breadthCm && plan.shippingProfile?.heightCm
+                              ? `${plan.shippingProfile.lengthCm} × ${plan.shippingProfile.breadthCm} × ${plan.shippingProfile.heightCm} cm`
+                              : "Set dimensions before shipping"}</small>
+                          </span>
           </div>
         ))}
       </section>

@@ -1,14 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Activity, BellRing, CalendarDays, CheckCheck, ChevronRight, FileText, PackageCheck, UsersRound } from "lucide-react";
 import { PageHeader } from "../../shared/components/ui";
-import { bookings as initialBookings, orders as initialOrders, patients as initialPatients } from "../../shared/lib/demo-data";
 import { useSessionState } from "../../shared/lib/use-session-state";
-import type { AuditEventRecord, BookingRecord, PageKey, PatientRecord, Role } from "../../shared/types";
-import { patientClinicalProfiles } from "../../operations/lib/patient-profiles";
-import { initialHairTests } from "../../operations/lib/hair-test-demo";
-import type { HairTestRecord, PatientClinicalProfile, PatientReportNotification } from "../../operations/types";
+import type { AuditEventRecord, PageKey, Role } from "../../shared/types";
 
 type NotificationCategory = "Appointments" | "Patients" | "Reports" | "Orders" | "Activity";
 type NotificationFilter = "All" | "Unread" | NotificationCategory;
@@ -26,30 +22,78 @@ type DashboardNotification = {
 };
 
 const filters: NotificationFilter[] = ["All", "Unread", "Appointments", "Patients", "Reports", "Orders", "Activity"];
+type ApiRecord = Record<string, unknown>;
+type LiveNotificationData = {
+  appointments: ApiRecord[];
+  patients: ApiRecord[];
+  orders: ApiRecord[];
+  hairTests: ApiRecord[];
+  reports: ApiRecord[];
+  auditEvents: ApiRecord[];
+};
+const emptyLiveData: LiveNotificationData = {
+  appointments: [], patients: [], orders: [], hairTests: [], reports: [], auditEvents: [],
+};
 
 export function NotificationCenter({
   role,
   userName,
   permissions,
-  events,
   onNavigate,
 }: {
   role: Role;
   userName: string;
   permissions: string[];
-  events: AuditEventRecord[];
+  events?: AuditEventRecord[];
   onNavigate: (page: PageKey, options?: NavigateOptions) => void;
 }) {
-  const [bookings] = useSessionState<BookingRecord[]>("drhair-demo-bookings", initialBookings);
-  const [patients] = useSessionState<PatientRecord[]>("drhair-demo-patients", initialPatients);
-  const [orders] = useSessionState("drhair-demo-orders", initialOrders);
-  const [profiles] = useSessionState<Record<string, PatientClinicalProfile>>("drhair-demo-patient-profiles", patientClinicalProfiles);
-  const [hairTests] = useSessionState<HairTestRecord[]>("drhair-demo-hair-tests", initialHairTests);
-  const [reportNotifications] = useSessionState<PatientReportNotification[]>("drhair-demo-patient-notifications", []);
+  const [liveData, setLiveData] = useState<LiveNotificationData>(emptyLiveData);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
   const [readIds, setReadIds] = useSessionState<string[]>("drhair-admin-notification-read", []);
   const [filter, setFilter] = useState<NotificationFilter>("All");
 
-  const visibleEvents = useMemo(() => role === "super-admin" ? events : events.filter((event) => event.who === userName), [events, role, userName]);
+  useEffect(() => {
+    const controller = new AbortController();
+    const sources: [keyof LiveNotificationData, string][] = [];
+    if (hasPermission(role, permissions, "bookings.manage")) sources.push(["appointments", "/api/admin/appointments?limit=100"]);
+    if (hasPermission(role, permissions, "patients.view")) sources.push(["patients", "/api/admin/users?page=1&limit=100"]);
+    if (hasPermission(role, permissions, "orders.manage")) sources.push(["orders", "/api/admin/orders?limit=100"]);
+    if (hasPermission(role, permissions, "hair-tests.view")) sources.push(["hairTests", "/api/admin/hair-tests?limit=100"]);
+    if (hasPermission(role, permissions, "reports.share")) sources.push(["reports", "/api/admin/reports?limit=100"]);
+    if (hasPermission(role, permissions, "audit.view")) sources.push(["auditEvents", "/api/admin/audit-logs?limit=100"]);
+    void Promise.resolve().then(() => {
+      if (controller.signal.aborted) return [];
+      setIsLoading(true);
+      setLoadError("");
+      return Promise.all(sources.map(async ([key, url]) => {
+      try {
+        const response = await fetch(url, { cache: "no-store", signal: controller.signal });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(typeof body.message === "string" ? body.message : "A notification source could not be loaded.");
+        const data = body.data && typeof body.data === "object" ? body.data : {};
+        const items = Array.isArray(data.items) ? data.items : Array.isArray(data) ? data : [];
+        return { key, items: items.filter((item: unknown): item is ApiRecord => Boolean(item) && typeof item === "object"), error: "" };
+      } catch (error) {
+        return { key, items: [], error: error instanceof Error ? error.message : "A notification source could not be loaded." };
+      }
+      }));
+    }).then((results) => {
+      if (controller.signal.aborted) return;
+      const next = { ...emptyLiveData };
+      for (const result of results) next[result.key] = result.items;
+      setLiveData(next);
+      setLoadError(results.find((result) => result.error)?.error ?? "");
+      setIsLoading(false);
+    });
+    return () => controller.abort();
+  }, [permissions, reloadKey, role]);
+
+  const visibleEvents = useMemo(() => liveData.auditEvents
+    .map(toAuditEvent)
+    .filter((event): event is AuditEventRecord => event !== null)
+    .filter((event) => role === "super-admin" || event.who === userName), [liveData.auditEvents, role, userName]);
 
   const notifications = useMemo(() => {
     const createdAppointmentIds = new Set(visibleEvents
@@ -60,82 +104,75 @@ export function NotificationCenter({
       .filter((event) => event.type === "Bookings" && hasPermission(role, permissions, "bookings.manage"))
       .map((event, index) => {
         const bookingId = event.target.split("·")[0].trim();
-        const booking = bookings.find((item) => item.id === bookingId);
+        const booking = liveData.appointments.find((item) => String(item.id ?? item._id ?? "") === bookingId);
         const created = /created clinic appointment/i.test(event.action);
+        const customer = booking ? recordText(booking, "customer", "name", "patient_name") : event.target;
+        const service = booking ? recordText(booking, "service", "reason") : event.action;
+        const startsAt = booking ? recordText(booking, "starts_at", "startsAt", "date") : "";
         return {
           id: `event:${event.type}:${event.who}:${event.time}:${event.target}:${index}`,
           category: "Appointments",
           title: created ? "New clinic appointment" : "Appointment updated",
-          detail: `${booking?.customer ?? event.target} · ${booking?.service ?? event.action}`,
+          detail: `${customer} · ${service}`,
           time: event.time,
           page: "bookings",
-          bookingDate: booking ? bookingDateKey(booking) : undefined,
+          bookingDate: startsAt ? dateKey(startsAt) : undefined,
           unreadTone: "bg-[#E6F4F1] text-[#237A70]",
         };
       });
 
-    bookings.filter((booking) => hasPermission(role, permissions, "bookings.manage") && booking.opdStatus === "Requested" && !createdAppointmentIds.has(booking.id)).forEach((booking) => {
+    liveData.appointments.filter((booking) => ["requested", "pending"].includes(recordText(booking, "status", "opd_status").toLowerCase()) && !createdAppointmentIds.has(recordText(booking, "id", "_id"))).forEach((booking) => {
+      const id = recordText(booking, "id", "_id");
+      const startsAt = recordText(booking, "starts_at", "startsAt", "date");
       appointmentItems.push({
-        id: `booking-request:${booking.id}`,
+        id: `booking-request:${id}`,
         category: "Appointments",
         title: "Appointment needs confirmation",
-        detail: `${booking.customer} · ${booking.service}`,
-        time: booking.startsAt ? formatDateTime(booking.startsAt) : booking.date,
+        detail: `${recordText(booking, "customer", "name", "patient_name")} · ${recordText(booking, "service", "reason")}`,
+        time: startsAt ? formatDateTime(startsAt) : "",
         page: "bookings",
-        bookingDate: bookingDateKey(booking),
+        bookingDate: startsAt ? dateKey(startsAt) : undefined,
         unreadTone: "bg-[#E6F4F1] text-[#237A70]",
       });
     });
 
-    const patientItems: DashboardNotification[] = hasPermission(role, permissions, "patients.view") ? patients
-      .filter((patient) => patient.status === "Review" || patient.status === "Pending")
+    const patientItems: DashboardNotification[] = liveData.hairTests
+      .filter((test) => ["submitted", "review", "in_review", "pending"].includes(recordText(test, "status").toLowerCase()))
       .map((patient) => ({
-        id: `patient-review:${patient.id}`,
+        id: `patient-review:${recordText(patient, "id", "reference_no", "referenceNo")}`,
         category: "Patients",
-        title: patient.status === "Review" ? "Patient review is waiting" : "New patient assessment",
-        detail: `${patient.name} · ${patient.assessment}`,
-        time: patient.submitted,
+        title: "Patient assessment needs review",
+        detail: `${recordText(patient, "patient_name", "name", "patient_code")} · ${recordText(patient, "test_name", "primary_concern", "stage")}`,
+        time: recordText(patient, "created_at", "submitted_at", "date"),
         page: "patients",
         anchor: "patient-reviews",
         unreadTone: "bg-[#EEF4FF] text-[#436693]",
-      })) : [];
+      }));
 
-    const reportItems: DashboardNotification[] = hasPermission(role, permissions, "reports.share") ? Object.entries(profiles).flatMap(([patientId, profile]) => profile.reports
-      .filter((report) => report.status === "Ready" && !reportNotifications.some((notification) => notification.patientId === patientId && notification.reportId === report.id))
+    const reportItems: DashboardNotification[] = liveData.reports
+      .filter((report) => ["draft", "in review", "pending", "ready"].includes(recordText(report, "status").toLowerCase()))
       .map((report) => ({
-        id: `report-ready:${patientId}:${report.id}`,
+        id: `report:${recordText(report, "id", "_id")}`,
         category: "Reports",
-        title: "Patient report is ready to share",
-        detail: `${report.title} · ${patientId}`,
-        time: report.date,
+        title: recordText(report, "status").toLowerCase() === "ready" ? "Patient report is ready to share" : "Patient report needs review",
+        detail: `${recordText(report, "title", "file_name")} · ${recordText(report, "patient_code", "user_id")}`,
+        time: recordText(report, "created_at", "uploaded_at", "date"),
         page: "patients",
         anchor: "patient-reviews",
         unreadTone: "bg-[#F2EEFF] text-[#6757A6]",
-      }))) : [];
+      }));
 
-    const testItems: DashboardNotification[] = hasPermission(role, permissions, "hair-tests.view") ? hairTests
-      .filter((test) => test.status === "In review")
-      .map((test) => ({
-        id: `hair-test:${test.id}`,
-        category: "Reports",
-        title: "Hair test result needs review",
-        detail: `${test.patientName} · ${test.testName}`,
-        time: test.testDate,
-        page: "tests",
-        unreadTone: "bg-[#FFF4E3] text-[#966218]",
-      })) : [];
-
-    const orderItems: DashboardNotification[] = hasPermission(role, permissions, "orders.manage") ? orders
-      .filter((order) => ["New", "Pending", "Needs attention"].includes(order.status))
+    const orderItems: DashboardNotification[] = liveData.orders
+      .filter((order) => ["new", "pending", "needs attention"].includes(recordText(order, "fulfillment_status", "status").toLowerCase()))
       .map((order) => ({
-        id: `order-action:${order.id}`,
+        id: `order-action:${recordText(order, "id", "_id")}`,
         category: "Orders",
-        title: order.status === "Needs attention" ? "Order needs attention" : "Order needs fulfilment",
-        detail: `${order.id} · ${order.customer} · ${order.item}`,
-        time: order.date,
+        title: recordText(order, "fulfillment_status", "status").toLowerCase() === "needs attention" ? "Order needs attention" : "Order needs fulfilment",
+        detail: `${recordText(order, "order_number", "id", "_id")} · ${recordText(order, "customer_name", "customer")} · ${recordText(order, "item_summary", "product_name")}`,
+        time: recordText(order, "created_at", "date"),
         page: "orders",
         unreadTone: "bg-[#FFF4E3] text-[#966218]",
-      })) : [];
+      }));
 
     const activityItems: DashboardNotification[] = visibleEvents
       .filter((event) => event.type !== "Bookings")
@@ -156,8 +193,8 @@ export function NotificationCenter({
         };
       });
 
-    return [...appointmentItems, ...patientItems, ...reportItems, ...testItems, ...orderItems, ...activityItems];
-  }, [bookings, hairTests, orders, patients, profiles, reportNotifications, role, permissions, visibleEvents]);
+    return [...appointmentItems, ...patientItems, ...reportItems, ...orderItems, ...activityItems];
+  }, [liveData, role, permissions, visibleEvents]);
 
   const unreadCount = notifications.filter((item) => !readIds.includes(item.id)).length;
   const appointmentCount = notifications.filter((item) => item.category === "Appointments" && !readIds.includes(item.id)).length;
@@ -184,10 +221,11 @@ export function NotificationCenter({
       action={<button type="button" className="button button-secondary w-full sm:w-auto" onClick={markAllRead} disabled={!unreadCount}><CheckCheck size={15} />Mark all as read</button>}
     />
 
-    <div className="notice mb-4 flex items-start gap-2.5" role="status">
-      <BellRing size={15} className="mt-0.5 shrink-0" />
-      <span><strong>Preview inbox.</strong> Updates are built from this browser’s sample data and activity. Live notification delivery needs the notification API/feed.</span>
-    </div>
+    {(isLoading || loadError) && <div className={"notice mb-4 flex items-center gap-2.5 " + (loadError ? "notice-warning" : "")} role="status">
+      <BellRing size={15} className="shrink-0" />
+      <span className="flex-1">{isLoading ? "Loading live updates from clinic services…" : loadError}</span>
+      {!isLoading && loadError && <button type="button" className="button button-secondary button-small" onClick={() => setReloadKey((value) => value + 1)}>Retry</button>}
+    </div>}
 
     <section className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3" aria-label="Notification summary">
       <NotificationSummary label="Unread updates" value={unreadCount} icon={<BellRing size={16} />} tone="teal" />
@@ -241,7 +279,7 @@ export function NotificationCenter({
       </div> : <div className="mx-3 mb-3 rounded-2xl bg-[#F7F9FC] px-5 py-10 text-center sm:mx-4 sm:mb-4">
         <span className="mx-auto grid h-11 w-11 place-items-center rounded-2xl bg-white text-slate-400 shadow-sm"><BellRing size={18} /></span>
         <h3 className="mt-3 text-sm font-semibold text-[#1A365D]">{filter === "Unread" ? "You’re all caught up" : "No updates in this section"}</h3>
-        <p className="mt-1 text-xs text-slate-500">New items will appear here when the connected clinic services send them.</p>
+        <p className="mt-1 text-xs text-slate-500">Updates are generated from current appointments, patient assessments, reports, orders, and audit events.</p>
       </div>}
     </section>
   </div>;
@@ -293,12 +331,38 @@ function pageForEvent(event: AuditEventRecord, role: Role): PageKey {
   return "overview";
 }
 
-function bookingDateKey(booking: BookingRecord) {
-  if (booking.startsAt) {
-    const date = new Date(booking.startsAt);
-    if (!Number.isNaN(date.valueOf())) return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+function recordText(record: ApiRecord, ...keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number") return String(value);
   }
-  return "";
+  return "Details unavailable";
+}
+
+function toAuditEvent(record: ApiRecord): AuditEventRecord | null {
+  const action = recordText(record, "action");
+  const target = recordText(record, "target");
+  const who = recordText(record, "actor", "who", "actor_email");
+  const timeValue = recordText(record, "created_at", "time");
+  const typeValue = recordText(record, "targetType", "target_type", "type");
+  const allowedTypes: AuditEventRecord["type"][] = ["Access", "Feature", "Content", "Notifications", "App updates", "Commerce", "Orders", "Clinical", "Testing", "Bookings"];
+  const type = allowedTypes.find((item) => item.toLowerCase() === typeValue.toLowerCase()) ?? "Clinical";
+  if (action === "Details unavailable" || target === "Details unavailable" || who === "Details unavailable") return null;
+  return {
+    who,
+    initials: who.split(/\s+/).map((part) => part[0] ?? "").join("").slice(0, 2).toUpperCase(),
+    action,
+    target,
+    time: timeValue === "Details unavailable" ? "" : timeValue,
+    type,
+  };
+}
+
+function dateKey(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return "";
+  return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
 }
 
 function formatDateTime(value: string) {

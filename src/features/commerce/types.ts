@@ -13,6 +13,12 @@ export interface ProductSupplyPlan {
   stock: number;
   lowStockThreshold: number;
   badge: string;
+  shippingProfile?: {
+    weightKg: number;
+    lengthCm: number;
+    breadthCm: number;
+    heightCm: number;
+  };
 }
 
 export interface ProductBenefit {

@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Activity,
   AlertCircle,
   AlertTriangle,
   ArrowRight,
@@ -11,15 +10,12 @@ import {
   CalendarClock,
   CalendarDays,
   CheckCircle2,
-  ClipboardCheck,
   Clock,
-  CreditCard,
   DollarSign,
   Download,
   Eye,
   FileText,
   Filter,
-  Pill,
   Plus,
   Printer,
   Sparkles,
@@ -30,18 +26,15 @@ import {
 import { Avatar, Modal, PageHeader, StatusPill, TableToolbar } from "../../shared/components/ui";
 import type { BookingRecord, PatientRecord } from "../../shared/types";
 import type { AdminPermissionId } from "../../shared/types";
-import { patientClinicalProfiles } from "../lib/patient-profiles";
-import { createFallbackProfile } from "./patient-profile-dialog";
 import { OrdersPage } from "./orders-page";
 import { AppointmentBillingControl } from "./appointment-billing-control";
+import { AppointmentScheduleControl } from "./appointment-schedule-control";
 
 type CareOperationsKind = "patients" | "bookings";
-type TriageFilter = "all" | "needs-regimen" | "pending-checkins" | "active-regimen";
 type BookingDateRange = "upcoming" | "past" | "all";
-const clinicSlotGroups = [
-  { label: "Morning · 10:00 AM–1:00 PM", slots: ["10:00 AM", "10:30 AM", "11:00 AM", "11:30 AM", "12:00 PM", "12:30 PM"] },
-  { label: "Evening · 3:30–7:00 PM", slots: ["03:30 PM", "04:00 PM", "04:30 PM", "05:00 PM", "05:30 PM", "06:00 PM", "06:30 PM"] },
-];
+type ClinicSession = { label: string; opens_at: string; closes_at: string };
+type ClinicSchedule = { timezone?: string; booking_window_days: number | null; slot_interval_minutes: number | null; weekly_closed_weekdays: number[]; sessions: ClinicSession[]; appointment_duration_minutes?: number | null; appointment_services?: string[]; clinic_name?: string; clinic_address?: string; doctor_name?: string; room?: string; is_configured: boolean };
+const weekdayLabels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 export function OperationsPage({
   kind,
@@ -90,16 +83,14 @@ function CareOperationsPage({
   const [apiBookings, setApiBookings] = useState<BookingRecord[]>([]);
   const [reloadBookings, setReloadBookings] = useState(0);
   const bookings = apiBookings;
-  const profiles = patientClinicalProfiles;
 
   const [query, setQuery] = useState("");
-  const [triageFilter, setTriageFilter] = useState<TriageFilter>("all");
   const [dialog, setDialog] = useState<BookingRecord | null>(null);
   const [showAppointmentForm, setShowAppointmentForm] = useState(false);
   const [submittingAppointment, setSubmittingAppointment] = useState(false);
   const [editingAppointmentId, setEditingAppointmentId] = useState<string | null>(null);
   const [appointmentPatientId, setAppointmentPatientId] = useState("");
-  const [appointmentService, setAppointmentService] = useState("Clinic consultation");
+  const [appointmentService, setAppointmentService] = useState("");
   const [appointmentSource, setAppointmentSource] = useState<NonNullable<BookingRecord["source"]>>("Phone");
   const [statusFilter, setStatusFilter] = useState("All status");
   const [paymentFilter, setPaymentFilter] = useState("All payments");
@@ -107,11 +98,11 @@ function CareOperationsPage({
   const [paymentActionStatus, setPaymentActionStatus] = useState<"Paid" | "Pending" | "Waived" | "Refunded">("Paid");
   const [paymentMethodChoice, setPaymentMethodChoice] = useState("Cash");
   const [paymentTxnInput, setPaymentTxnInput] = useState("");
-  const [paymentFeeInput, setPaymentFeeInput] = useState(500);
+  const [paymentFeeInput, setPaymentFeeInput] = useState<number | null>(null);
   const [submittingPayment, setSubmittingPayment] = useState(false);
 
   // New Appointment Form payment fields
-  const [appointmentFee, setAppointmentFee] = useState(500);
+  const [appointmentFee, setAppointmentFee] = useState<number | null>(null);
   const [appointmentPaymentStatus, setAppointmentPaymentStatus] = useState<"Pending" | "Paid" | "Waived">("Pending");
   const [appointmentPaymentMethod, setAppointmentPaymentMethod] = useState("Pay at clinic");
   const [appointmentTransactionId, setAppointmentTransactionId] = useState("");
@@ -124,15 +115,43 @@ function CareOperationsPage({
   const [reloadHolidays, setReloadHolidays] = useState(0);
   const [newHolidayDate, setNewHolidayDate] = useState("");
   const [appointmentDate, setAppointmentDate] = useState("");
-  const [appointmentSlot, setAppointmentSlot] = useState("10:30 AM");
+  const [appointmentSlot, setAppointmentSlot] = useState("");
   const [appointmentRescheduleReason, setAppointmentRescheduleReason] = useState("");
   const [cancelBookingTarget, setCancelBookingTarget] = useState<BookingRecord | null>(null);
   const [cancellationPreset, setCancellationPreset] = useState("Doctor unavailable / Emergency surgery");
   const [customCancellationReason, setCustomCancellationReason] = useState("");
   const [submittingCancel, setSubmittingCancel] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  const [clinicSchedule, setClinicSchedule] = useState<ClinicSchedule | null>(null);
+  const [clinicBillingFee, setClinicBillingFee] = useState<number | null>(null);
+  const [reloadClinicSettings, setReloadClinicSettings] = useState(0);
+  const clinicSlotGroups = useMemo(() => makeClinicSlotGroups(clinicSchedule), [clinicSchedule]);
+  const clinicName = clinicSchedule?.clinic_name || "Clinic";
+  const clinicDoctor = clinicSchedule?.doctor_name || "Clinic team";
+  const clinicRoom = clinicSchedule?.room || "Location to be confirmed";
+  const clinicAddress = clinicSchedule?.clinic_address || "Address not configured";
+  const isClinicClosedWeekday = (dateKey: string) => isClosedWeekday(dateKey, clinicSchedule?.weekly_closed_weekdays || []);
   const apiSearch = `${globalSearch} ${query}`.trim();
   const patientPage = patientPageState.search === apiSearch ? patientPageState.page : 1;
+
+  useEffect(() => {
+    if (isPatient) return;
+    const controller = new AbortController();
+    Promise.all([
+      fetch("/api/admin/appointments/schedule", { cache: "no-store", signal: controller.signal }),
+      fetch("/api/admin/appointments/billing", { cache: "no-store", signal: controller.signal }),
+    ]).then(async ([scheduleResponse, billingResponse]) => {
+      const [scheduleBody, billingBody] = await Promise.all([
+        scheduleResponse.json().catch(() => ({})), billingResponse.json().catch(() => ({})),
+      ]);
+      if (!controller.signal.aborted && scheduleResponse.ok) setClinicSchedule(scheduleBody.data || null);
+      if (!controller.signal.aborted && billingResponse.ok) {
+        const fee = Number(billingBody.data?.consultation_fee);
+        setClinicBillingFee(Number.isFinite(fee) ? fee : null);
+      }
+    }).catch(() => {});
+    return () => controller.abort();
+  }, [isPatient, reloadClinicSettings]);
 
   useEffect(() => {
     if (isPatient) return;
@@ -152,19 +171,23 @@ function CareOperationsPage({
           customer: String(item.customer || item.name || "Patient"),
           patientId: String(item.patientId || item.patient_code || item.userId || ""),
           patientCode: typeof item.patient_code === "string" ? item.patient_code : undefined,
-          service: String(item.service || item.reason || "Clinic consultation"),
+          service: String(item.service || item.reason || ""),
           date: String(item.date || ""),
           startsAt: typeof item.startsAt === "string" ? item.startsAt : (typeof item.starts_at === "string" ? item.starts_at : undefined),
+          timezone: typeof item.timezone === "string" ? item.timezone : undefined,
           status: (item.status || item.opdStatus || "Requested") as BookingRecord["status"],
           source: (item.source || "App") as BookingRecord["source"],
-          doctorName: String(item.doctorName || item.doctor_name || "Dr. Jai Bansal"),
-          room: typeof item.room === "string" ? item.room : "Room 101 - Chamber A",
+          doctorName: String(item.doctorName || item.doctor_name || ""),
+          room: typeof item.room === "string" ? item.room : "",
           tokenNumber: typeof item.tokenNumber === "string" ? item.tokenNumber : (typeof item.opd_token === "string" ? item.opd_token : undefined),
           opdStatus: (item.status || item.opdStatus || "Confirmed") as BookingRecord["opdStatus"],
-          consultationFee: typeof item.consultationFee === "number" ? item.consultationFee : (typeof item.consultation_fee === "number" ? item.consultation_fee : 500),
+          consultationFee: typeof item.consultationFee === "number" ? item.consultationFee : (typeof item.consultation_fee === "number" ? item.consultation_fee : undefined),
           paymentStatus: typeof item.paymentStatus === "string" ? item.paymentStatus : (typeof item.payment_status === "string" ? item.payment_status : "Paid"),
           paymentMethod: typeof item.paymentMethod === "string" ? item.paymentMethod : (typeof item.payment_method === "string" ? item.payment_method : "UPI"),
           paymentTransactionId: typeof item.paymentTransactionId === "string" ? item.paymentTransactionId : (typeof item.payment_transaction_id === "string" ? item.payment_transaction_id : undefined),
+          refundStatus: typeof item.refund_status === "string" ? item.refund_status as BookingRecord["refundStatus"] : undefined,
+          refundAmount: typeof item.refund_amount === "number" ? item.refund_amount : undefined,
+          refundPendingAmount: typeof item.refund_pending_amount === "number" ? item.refund_pending_amount : undefined,
           cancellationReason: typeof item.cancellationReason === "string" ? item.cancellationReason : (typeof item.cancellation_reason === "string" ? item.cancellation_reason : undefined),
           cancellation_reason: typeof item.cancellation_reason === "string" ? item.cancellation_reason : (typeof item.cancellationReason === "string" ? item.cancellationReason : undefined),
           cancelledBy: typeof item.cancelledBy === "string" ? item.cancelledBy : (typeof item.cancelled_by === "string" ? item.cancelled_by : undefined),
@@ -229,9 +252,9 @@ function CareOperationsPage({
             city: typeof user.city === "string" ? user.city : null,
             occupation: typeof user.occupation === "string" ? user.occupation : null,
             photoUrl: typeof user.profile_url === "string" ? user.profile_url : null,
-            assessment: "No assessment submitted",
+            assessment: typeof user.latest_assessment === "string" ? user.latest_assessment : "",
             submitted: createdAt && !Number.isNaN(createdAt.valueOf()) ? createdAt.toLocaleDateString("en-IN") : "—",
-            status: "Active" as const,
+            status: user.is_blocked || user.status === "blocked" ? "Suspended" as const : user.status === "inactive" ? "Inactive" as const : "Active" as const,
           };
         }));
         setApiPatientTotal(typeof data.total === "number" ? data.total : items.length);
@@ -327,16 +350,39 @@ function CareOperationsPage({
     setPaymentActionStatus(booking.paymentStatus === "Paid" ? "Paid" : "Paid");
     setPaymentMethodChoice(booking.paymentMethod && booking.paymentMethod !== "Pay at clinic" ? booking.paymentMethod : "Cash");
     setPaymentTxnInput(booking.paymentTransactionId || "");
-    setPaymentFeeInput(booking.consultationFee ?? 500);
+    setPaymentFeeInput(booking.consultationFee ?? clinicBillingFee);
   };
 
   const handleSavePaymentRecord = async () => {
     if (!paymentModalBooking) return;
     setSubmittingPayment(true);
     try {
+      if (paymentActionStatus === "Refunded" && paymentModalBooking.paymentMethod?.toLowerCase() === "razorpay") {
+        const response = await fetch(`/api/admin/appointments/${encodeURIComponent(paymentModalBooking.id)}/refund`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: "Clinic-approved appointment refund" }),
+          cache: "no-store",
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          onToast(result.message || "Could not request the Razorpay appointment refund.");
+          return;
+        }
+        const refundStatus = result.data?.refund_status || "pending";
+        onAudit(`requested Razorpay appointment refund (${refundStatus})`, `Appointment ${paymentModalBooking.id}`);
+        onToast(refundStatus === "processed" ? "Razorpay processed the appointment refund." : "Razorpay accepted the appointment refund request; confirmation is pending.");
+        setPaymentModalBooking(null);
+        setReloadBookings((c) => c + 1);
+        return;
+      }
       const isPaid = paymentActionStatus === "Paid";
       const isWaived = paymentActionStatus === "Waived";
-      const finalFee = isWaived ? 0 : paymentFeeInput;
+      if (!isWaived && paymentFeeInput == null) {
+        onToast("Enter the consultation fee before recording payment.");
+        return;
+      }
+      const finalFee = isWaived ? 0 : (paymentFeeInput ?? undefined);
       const finalMethod = isPaid ? paymentMethodChoice : (isWaived ? "Free / Waived" : (paymentActionStatus === "Refunded" ? "Refund" : "Pay at clinic"));
       const finalTxn = isPaid ? paymentTxnInput.trim() || undefined : undefined;
 
@@ -374,38 +420,16 @@ function CareOperationsPage({
     }
   };
 
-  const markFeePaid = async (bookingId: string) => {
-    try {
-      const response = await fetch(`/api/admin/appointments/${encodeURIComponent(bookingId)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ payment_status: "Paid", payment_method: "Cash" }),
-        cache: "no-store",
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        onToast(result.message || "Could not update payment status.");
-        return;
-      }
-      setDialog((current) => current?.id === bookingId ? { ...current, paymentStatus: "Paid", paymentMethod: "Cash" } : null);
-      onAudit("marked appointment payment as Paid (Cash)", `Booking ${bookingId}`);
-      onToast("Appointment marked as Paid.");
-      setReloadBookings((c) => c + 1);
-    } catch {
-      onToast("Network error updating payment status.");
-    }
-  };
-
   const canViewClinicalPatients = permissions.some((permission) => ["patients.view", "assessments.review", "progress.review", "care-plans.edit"].includes(permission));
   const config = isPatient
     ? {
         title: "Trichology & Patient Care",
-        desc: "Review assessments, test results, care plans, private patient files, and progress check-ins for Dr. Jai Bansal’s clinic.",
+        desc: "Review patient assessments, care plans, records, and progress check-ins.",
         eyebrow: "Clinical Workspace",
       }
       : {
         title: "Clinic appointments",
-        desc: "Review physical visit requests and record appointments for Dr. Jai Bansal.",
+        desc: "Review appointment requests and manage clinic visits.",
         eyebrow: "Clinic operations",
       };
 
@@ -413,33 +437,19 @@ function CareOperationsPage({
 
   const filteredPatients = useMemo(() => {
     return patients.filter((item) => {
-      const profile = profiles[item.id] ?? createFallbackProfile(item);
-      const diagnosis = profile?.diagnoses[0]?.name ?? item.assessment;
-      const searchText = canViewClinicalPatients ? `${item.name} ${item.patientCode ?? ""} ${item.email} ${item.assessment} ${diagnosis} ${item.id}` : `${item.name} ${item.patientCode ?? ""} ${item.id}`;
+      const searchText = `${item.name} ${item.patientCode ?? ""} ${item.email} ${item.phone ?? ""} ${item.id}`;
       const matchesSearch = searchText
         .toLowerCase()
         .includes(search);
 
       const matchesStatus = !canViewClinicalPatients || statusFilter === "All status" || item.status === statusFilter;
-
-      // Triage filter
-      let matchesTriage = true;
-      if (!canViewClinicalPatients) matchesTriage = true;
-      else if (triageFilter === "needs-regimen") {
-        matchesTriage = !profile?.prescriptionPlan || item.status === "Review" || item.status === "Pending";
-      } else if (triageFilter === "pending-checkins") {
-        matchesTriage = Boolean(profile?.progress?.some((p: { doctorReviewed?: boolean }) => !p.doctorReviewed));
-      } else if (triageFilter === "active-regimen") {
-        matchesTriage = Boolean(profile?.prescriptionPlan);
-      }
-
-      return matchesSearch && matchesStatus && matchesTriage;
+      return matchesSearch && matchesStatus;
     });
-  }, [canViewClinicalPatients, patients, profiles, search, statusFilter, triageFilter]);
+  }, [canViewClinicalPatients, patients, search, statusFilter]);
 
   const filteredBookings = useMemo(() => {
     const now = new Date();
-    const todayKey = localDateKey(now);
+    const todayKey = zonedDateKey(now, clinicSchedule?.timezone);
     return bookings.filter(
       (item) => {
         const matchesSearch = `${item.customer} ${item.service} ${item.id} ${item.tokenNumber ?? ""} ${item.source ?? ""} ${item.paymentStatus ?? ""} ${item.paymentMethod ?? ""}`.toLowerCase().includes(search);
@@ -457,11 +467,11 @@ function CareOperationsPage({
       const difference = bookingTimestamp(left) - bookingTimestamp(right);
       return bookingDateFilter || bookingDateRange === "upcoming" ? difference : -difference;
     });
-  }, [bookingDateFilter, bookingDateRange, bookings, paymentFilter, search, statusFilter]);
+  }, [bookingDateFilter, bookingDateRange, bookings, clinicSchedule?.timezone, paymentFilter, search, statusFilter]);
 
   const isSlotBooked = (date: string, slot: string) => {
     if (!date || !slot) return false;
-    const startsAt = appointmentSlotStart(date, slot).valueOf();
+    const startsAt = appointmentSlotStart(date, slot, clinicSchedule?.timezone).valueOf();
     return bookings.some((booking) => booking.id !== editingAppointmentId && booking.startsAt
       && new Date(booking.startsAt).valueOf() === startsAt && !["Cancelled", "No show"].includes(booking.status));
   };
@@ -530,11 +540,17 @@ function CareOperationsPage({
       onToast("Choose a patient, visit date and sitting time slot.");
       return;
     }
+    if (!clinicSchedule?.is_configured) {
+      onToast("Configure clinic hours before scheduling an appointment.");
+      return;
+    }
+    if (appointmentPaymentStatus !== "Waived" && appointmentFee == null) {
+      onToast("Set the consultation fee in appointment billing settings first.");
+      return;
+    }
 
-    const [year, month, dateNumber] = appointmentDate.split("-").map(Number);
-    const day = new Date(year, month - 1, dateNumber);
-    if (day.getDay() === 0) {
-      onToast("Sundays are clinic weekly off. Please select Mon–Sat.");
+    if (isClinicClosedWeekday(appointmentDate)) {
+      onToast("The clinic is closed on this weekday. Choose another date.");
       return;
     }
     if (clinicHolidays.includes(appointmentDate)) {
@@ -542,14 +558,18 @@ function CareOperationsPage({
       return;
     }
 
-    const start = appointmentSlotStart(appointmentDate, appointmentSlot);
+    const start = appointmentSlotStart(appointmentDate, appointmentSlot, clinicSchedule?.timezone);
 
     if (currentTime && start.getTime() <= currentTime) {
       onToast("Selected sitting slot has already passed.");
       return;
     }
 
-    const reason = appointmentService.trim() || "General hair & scalp consultation";
+    const reason = appointmentService.trim() || clinicSchedule?.appointment_services?.[0] || "";
+    if (!reason) {
+      onToast("Configure an appointment service before scheduling a visit.");
+      return;
+    }
     setSubmittingAppointment(true);
 
     try {
@@ -614,10 +634,10 @@ function CareOperationsPage({
     setEditingAppointmentId(null);
     setAppointmentPatientId("");
     setAppointmentDate("");
-    setAppointmentSlot("10:30 AM");
-    setAppointmentService("Clinic consultation");
+    setAppointmentSlot(clinicSlotGroups.flatMap((group) => group.slots)[0] || "");
+    setAppointmentService(clinicSchedule?.appointment_services?.[0] || "");
     setAppointmentSource("Phone");
-    setAppointmentFee(500);
+    setAppointmentFee(clinicBillingFee);
     setAppointmentPaymentStatus("Pending");
     setAppointmentPaymentMethod("Pay at clinic");
     setAppointmentTransactionId("");
@@ -629,11 +649,11 @@ function CareOperationsPage({
     setEditingAppointmentId(null);
     setAppointmentPatientId("");
     setAppointmentDate("");
-    setAppointmentSlot("10:30 AM");
-    setAppointmentService("Clinic consultation");
+    setAppointmentSlot(clinicSlotGroups.flatMap((group) => group.slots)[0] || "");
+    setAppointmentService(clinicSchedule?.appointment_services?.[0] || "");
     setAppointmentSource("Phone");
     setAppointmentRescheduleReason("");
-    setAppointmentFee(500);
+    setAppointmentFee(clinicBillingFee);
     setAppointmentPaymentStatus("Pending");
     setAppointmentPaymentMethod("Pay at clinic");
     setAppointmentTransactionId("");
@@ -736,16 +756,17 @@ function CareOperationsPage({
 
       {isPatient && <div className="notice operations-notice">
         <Eye size={14} />
-        <span>Private patient workspace for Dr. Jai Bansal. Changes and report notices stay in this browser preview until secure APIs are connected.</span>
+        <span>Private patient workspace. Patient records and visit actions load from the connected clinic services.</span>
       </div>}
 
       {isPatient ? (
-        <PatientSummary patients={patients} profiles={profiles} clinicalAccess={canViewClinicalPatients} />
+        <PatientSummary patients={patients} clinicalAccess={canViewClinicalPatients} />
       ) : (
         <>
-          <BookingSummary bookings={bookings} />
+          <BookingSummary bookings={bookings} clinicDoctor={clinicDoctor} />
           <div className="mt-4">
             <AppointmentBillingControl onToast={onToast} onAudit={onAudit} />
+            <div className="mt-3"><AppointmentScheduleControl onToast={onToast} onAudit={onAudit} onUpdated={() => setReloadClinicSettings((count) => count + 1)} /></div>
           </div>
         </>
       )}
@@ -761,51 +782,6 @@ function CareOperationsPage({
             </p>
           </div>
 
-          {/* Clinical Triage Buckets (Only for Patients) */}
-          {isPatient && canViewClinicalPatients && (
-            <div className="inline-flex rounded-lg border border-slate-200 p-1 bg-slate-50 gap-1 text-xs">
-              <button
-                className={`px-2.5 py-1 rounded font-medium transition-colors ${
-                  triageFilter === "all" ? "bg-white text-teal-800 shadow-sm font-semibold" : "text-slate-500 hover:text-slate-800"
-                }`}
-                onClick={() => setTriageFilter("all")}
-              >
-                All Patients ({patients.length})
-              </button>
-              <button
-                className={`px-2.5 py-1 rounded font-medium transition-colors flex items-center gap-1 ${
-                  triageFilter === "needs-regimen"
-                    ? "bg-amber-100 text-amber-900 shadow-sm font-semibold"
-                    : "text-slate-500 hover:text-slate-800"
-                }`}
-                onClick={() => setTriageFilter("needs-regimen")}
-              >
-                <Sparkles size={11} className="text-amber-600" />
-                Needs Regimen
-              </button>
-              <button
-                className={`px-2.5 py-1 rounded font-medium transition-colors flex items-center gap-1 ${
-                  triageFilter === "pending-checkins"
-                    ? "bg-teal-100 text-teal-900 shadow-sm font-semibold"
-                    : "text-slate-500 hover:text-slate-800"
-                }`}
-                onClick={() => setTriageFilter("pending-checkins")}
-              >
-                <Activity size={11} className="text-teal-600" />
-                Pending Check-Ins
-              </button>
-              <button
-                className={`px-2.5 py-1 rounded font-medium transition-colors ${
-                  triageFilter === "active-regimen"
-                    ? "bg-[#1A365D] text-white shadow-sm font-semibold"
-                    : "text-slate-600 hover:text-[#1A365D]"
-                }`}
-                onClick={() => setTriageFilter("active-regimen")}
-              >
-                Active Regimens
-              </button>
-            </div>
-          )}
           {!isPatient && <div className="booking-range-tabs w-full sm:w-auto" role="group" aria-label="Appointment date range">
             {([
               ["upcoming", "Upcoming"],
@@ -872,7 +848,6 @@ function CareOperationsPage({
                   setQuery("");
                   setStatusFilter("All status");
                   setPaymentFilter("All payments");
-                  setTriageFilter("all");
                   setBookingDateFilter("");
                   setBookingDateRange("upcoming");
                 }}
@@ -900,12 +875,7 @@ function CareOperationsPage({
               </thead>
               <tbody>
                 {filteredPatients.map((patient) => {
-                  const profile = profiles[patient.id] ?? createFallbackProfile(patient);
-                  const latestDiagnosis = profile?.diagnoses[0];
-                  const prescription = profile?.prescriptionPlan;
-                  const photos = profile?.assessmentAnswers?.photos || [];
-                  const uploadedPhotosCount = photos.filter((p: { status?: string }) => p.status === "Uploaded").length;
-                  const unreviewedCheckIn = profile?.progress?.find((p: { doctorReviewed?: boolean }) => !p.doctorReviewed);
+                  const latestDiagnosis = patient.assessment;
 
                   return (
                     <tr
@@ -919,7 +889,7 @@ function CareOperationsPage({
                           <div>
                             <div className="person-name font-semibold text-slate-800">{patient.name}</div>
                             <div className="person-sub text-[11px] text-slate-500">
-                              {patient.patientCode || patient.id} · {profile?.age ? `${profile.age} yrs` : "Age —"} · {patient.email}
+                              {patient.patientCode || patient.id} · {patient.age ? `${patient.age} yrs` : "Age —"} · {patient.email}
                             </div>
                           </div>
                         </div>
@@ -927,44 +897,26 @@ function CareOperationsPage({
 
                       <td>
                         <strong className="text-slate-800 block text-xs">
-                          {latestDiagnosis?.name ?? patient.assessment}
+                          {latestDiagnosis || "No assessment recorded"}
                         </strong>
                         <small className="text-teal-700 font-medium">
-                          {latestDiagnosis?.stage ?? "Pending Clinician Diagnosis"}
+                          {patient.city || "Location not provided"}
                         </small>
                       </td>
 
                       <td>
                         <div className="inline-flex items-center gap-1.5 text-xs text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">
                           <ZoomIn size={12} className="text-teal-600" />
-                          <span>{uploadedPhotosCount} angles</span>
+                          <span>{patient.photoUrl ? "Profile photo available" : "No profile photo"}</span>
                         </div>
                       </td>
 
                       <td>
-                        {prescription ? (
-                          <div className="text-xs">
-                            <span className="font-semibold text-[#1A365D] block">
-                              {prescription.products.length} Products Prescribed
-                            </span>
-                            <span className="text-[10px] text-slate-500">{prescription.duration}</span>
-                          </div>
-                        ) : (
-                          <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                            Regimen Needed
-                          </span>
-                        )}
+                        <span>{patient.gender || "Gender not provided"}</span>
                       </td>
 
                       <td>
-                        {unreviewedCheckIn ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded">
-                            <Activity size={11} />
-                            Action Needed
-                          </span>
-                        ) : (
-                          <span className="text-[11px] text-slate-400">Up to date</span>
-                        )}
+                        <span className="text-[11px] text-slate-500">Registered {patient.submitted}</span>
                       </td>
 
                       <td>
@@ -999,12 +951,11 @@ function CareOperationsPage({
             </table>
           ) : (
             <table>
-              <thead><tr><th>Patient</th><th>Patient documents</th><th /></tr></thead>
+              <thead><tr><th>Patient</th><th>Contact</th><th /></tr></thead>
               <tbody>{filteredPatients.map((patient) => {
-                const documents = profiles[patient.id]?.documents ?? [];
                 return <tr key={patient.id}>
                   <td><div className="person"><Avatar initials={patient.initials} /><div><div className="person-name">{patient.name}</div><div className="person-sub">{patient.patientCode || patient.id}</div></div></div></td>
-                  <td>{documents.length} document{documents.length === 1 ? "" : "s"}</td>
+                  <td>{patient.email || patient.phone || "Contact not provided"}</td>
                   <td><button className="button button-secondary button-small" onClick={() => router.push(`/patients/${encodeURIComponent(patient.patientCode || patient.id)}`)}>Open patient record</button></td>
                 </tr>;
               })}{filteredPatients.length === 0 && <tr><td colSpan={3}><div className="empty-state">No patient matches that name or ID.</div></td></tr>}</tbody>
@@ -1062,7 +1013,7 @@ function CareOperationsPage({
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Doctor:</span>
-                <span className="font-medium text-slate-700">Dr. Jai Bansal</span>
+                <span className="font-medium text-slate-700">{dialog.doctorName || clinicDoctor}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Scheduled:</span>
@@ -1074,7 +1025,7 @@ function CareOperationsPage({
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Consultation fee:</span>
-                <span className="font-medium text-slate-700">₹{dialog.consultationFee ?? 500}</span>
+                <span className="font-medium text-slate-700">{dialog.consultationFee == null ? "Not set" : `₹${dialog.consultationFee}`}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Payment:</span>
@@ -1129,7 +1080,7 @@ function CareOperationsPage({
                   className="button button-primary"
                 >
                   <DollarSign size={14} />
-                  {dialog.paymentStatus === "Paid" ? "Update payment" : `Collect fee (₹${dialog.consultationFee ?? 500})`}
+                  {dialog.paymentStatus === "Paid" ? "Update payment" : `Collect fee (${dialog.consultationFee == null ? "fee not set" : `₹${dialog.consultationFee}`})`}
                 </button>
               )}
               <button type="button" onClick={() => setPrintingSlipBooking(dialog)} className="button button-secondary"><Printer size={14} /> Print slip</button>
@@ -1140,9 +1091,9 @@ function CareOperationsPage({
       {showAppointmentForm && (
         <Modal
           title={editingAppointmentId ? "Reschedule In-Clinic Appointment" : "Add Physical Clinic Appointment"}
-          description="Book an in-person OPD consultation with Dr. Jai Bansal at Room 101."
+          description={`Book an in-person visit with ${clinicDoctor} at ${clinicRoom}.`}
           submitLabel={editingAppointmentId ? (submittingAppointment ? "Saving…" : "Save New OPD Slot") : (submittingAppointment ? "Booking…" : "Confirm Visit & Issue Token")}
-          submitDisabled={submittingAppointment || !appointmentPatientId || !appointmentDate || !appointmentSlot || isSundayDateKey(appointmentDate) || clinicHolidays.includes(appointmentDate) || isSlotBooked(appointmentDate, appointmentSlot) || appointmentSlotStart(appointmentDate, appointmentSlot).getTime() <= currentTime}
+          submitDisabled={submittingAppointment || !clinicSchedule?.is_configured || !appointmentPatientId || !appointmentDate || !appointmentSlot || isClinicClosedWeekday(appointmentDate) || clinicHolidays.includes(appointmentDate) || isSlotBooked(appointmentDate, appointmentSlot) || appointmentSlotStart(appointmentDate, appointmentSlot, clinicSchedule?.timezone).getTime() <= currentTime}
           onClose={closeAppointmentForm}
           onSubmit={handleCreateAppointment}
         >
@@ -1150,7 +1101,7 @@ function CareOperationsPage({
             <div className="p-2.5 bg-[#F0F7FF] border border-[#D6E0FC] rounded-lg flex items-center gap-2 text-xs text-[#1A365D]">
               <Stethoscope size={16} className="text-[#0D9488] shrink-0" />
               <div>
-                <strong>Chief Surgeon:</strong> Dr. Jai Bansal (Room 101 · Sector 29, Gurugram)
+                <strong>Clinician:</strong> {clinicDoctor} ({clinicRoom} · {clinicAddress})
               </div>
             </div>
 
@@ -1191,7 +1142,8 @@ function CareOperationsPage({
                 <span>Consultation Date *</span>
                 <input
                   type="date"
-                  min={localDateKey(new Date())}
+                  min={currentTime ? localDateKey(new Date(currentTime)) : undefined}
+                  max={clinicSchedule?.booking_window_days && currentTime ? localDateKey(new Date(currentTime + clinicSchedule.booking_window_days * 86400000)) : undefined}
                   value={appointmentDate}
                   onChange={(event) => setAppointmentDate(event.target.value)}
                 />
@@ -1202,7 +1154,7 @@ function CareOperationsPage({
                 <select value={appointmentSlot} onChange={(event) => setAppointmentSlot(event.target.value)}>
                   {clinicSlotGroups.map((group) => <optgroup label={group.label} key={group.label}>
                     {group.slots.map((slot) => {
-                      const unavailable = Boolean(appointmentDate) && (isSlotBooked(appointmentDate, slot) || appointmentSlotStart(appointmentDate, slot).getTime() <= currentTime);
+                      const unavailable = Boolean(appointmentDate) && (isSlotBooked(appointmentDate, slot) || appointmentSlotStart(appointmentDate, slot, clinicSchedule?.timezone).getTime() <= currentTime);
                       return <option value={slot} key={slot} disabled={unavailable}>{slot}{isSlotBooked(appointmentDate, slot) ? " · Booked" : unavailable ? " · Passed" : ""}</option>;
                     })}
                   </optgroup>)}
@@ -1217,9 +1169,9 @@ function CareOperationsPage({
                       type="number"
                       min={0}
                       step={50}
-                      value={appointmentFee}
-                      onChange={(e) => setAppointmentFee(Math.max(0, Number(e.target.value)))}
-                      placeholder="500"
+                      value={appointmentFee ?? ""}
+                      onChange={(e) => setAppointmentFee(e.target.value === "" ? null : Math.max(0, Number(e.target.value)))}
+                      placeholder={clinicBillingFee == null ? "Set billing policy first" : String(clinicBillingFee)}
                     />
                   </label>
 
@@ -1254,7 +1206,6 @@ function CareOperationsPage({
                           <option value="Cash">Cash at reception</option>
                           <option value="UPI / QR">UPI / QR (GPay/PhonePe/Paytm)</option>
                           <option value="Card">Card / POS Terminal</option>
-                          <option value="Online">Online / Pre-paid</option>
                         </select>
                       </label>
 
@@ -1285,10 +1236,10 @@ function CareOperationsPage({
               )}
             </div>
 
-            {appointmentDate && isSundayDateKey(appointmentDate) && (
+            {appointmentDate && isClinicClosedWeekday(appointmentDate) && (
               <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-300 text-amber-900 text-xs flex items-center gap-2">
                 <AlertTriangle size={15} className="shrink-0 text-amber-600" />
-                <span><strong>Sunday Selected:</strong> Clinic is closed on Sundays (Weekly Off). Please select a slot between Monday and Saturday.</span>
+                <span><strong>Clinic closed:</strong> This weekday is marked closed in the current schedule.</span>
               </div>
             )}
 
@@ -1306,8 +1257,8 @@ function CareOperationsPage({
       {paymentModalBooking && (
         <Modal
           title={`Appointment Payment · ${paymentModalBooking.tokenNumber ?? paymentModalBooking.id}`}
-          description={`${paymentModalBooking.customer} · Dr. Jai Bansal (${paymentModalBooking.date})`}
-          submitLabel={submittingPayment ? "Saving payment…" : "Save payment record"}
+          description={`${paymentModalBooking.customer} · ${paymentModalBooking.doctorName || clinicDoctor} (${paymentModalBooking.date})`}
+          submitLabel={submittingPayment ? "Saving payment…" : paymentActionStatus === "Refunded" && paymentModalBooking.paymentMethod?.toLowerCase() === "razorpay" ? "Request Razorpay refund" : "Save payment record"}
           submitDisabled={submittingPayment}
           onClose={() => setPaymentModalBooking(null)}
           onSubmit={handleSavePaymentRecord}
@@ -1370,8 +1321,8 @@ function CareOperationsPage({
                   min={0}
                   step={50}
                   disabled={paymentActionStatus === "Waived"}
-                  value={paymentActionStatus === "Waived" ? 0 : paymentFeeInput}
-                  onChange={(e) => setPaymentFeeInput(Math.max(0, Number(e.target.value)))}
+                  value={paymentActionStatus === "Waived" ? 0 : (paymentFeeInput ?? "")}
+                  onChange={(e) => setPaymentFeeInput(e.target.value === "" ? null : Math.max(0, Number(e.target.value)))}
                   className="pl-7"
                 />
               </div>
@@ -1388,7 +1339,6 @@ function CareOperationsPage({
                     <option value="Cash">Cash at clinic desk</option>
                     <option value="UPI / QR">UPI / QR (GPay / PhonePe / Paytm / BHIM)</option>
                     <option value="Card">Credit / Debit Card (POS Machine)</option>
-                    <option value="Razorpay">Razorpay Online Payment</option>
                     <option value="Netbanking">Netbanking / Bank Transfer</option>
                     <option value="Other">Other</option>
                   </select>
@@ -1410,6 +1360,7 @@ function CareOperationsPage({
               <div className="pt-2 border-t border-slate-200">
                 <button
                   type="button"
+                  disabled={(paymentModalBooking.refundPendingAmount ?? 0) > 0 || paymentModalBooking.refundAmount != null && (paymentModalBooking.refundAmount >= (paymentModalBooking.consultationFee ?? 0))}
                   onClick={() => setPaymentActionStatus("Refunded")}
                   className={`w-full p-2 rounded-lg border text-xs font-semibold transition-all ${
                     paymentActionStatus === "Refunded"
@@ -1417,7 +1368,9 @@ function CareOperationsPage({
                       : "border-slate-200 text-slate-600 hover:text-rose-600 hover:border-rose-200"
                   }`}
                 >
-                  Need to refund? Click here to mark payment as Refunded
+                  {paymentModalBooking.paymentMethod?.toLowerCase() === "razorpay"
+                    ? (paymentModalBooking.refundPendingAmount ?? 0) > 0 ? "Razorpay refund pending" : "Request a Razorpay refund"
+                    : "Record an offline refund"}
                 </button>
               </div>
             )}
@@ -1486,8 +1439,8 @@ function CareOperationsPage({
           <div className="availability-content">
             <div className="availability-hours">
               <Clock size={15} />
-              <span>Clinic hours: Mon–Sat · 10:00 AM–1:00 PM and 3:30–7:00 PM</span>
-              <span className="availability-weekly-off ml-0 sm:ml-auto">Sunday closed</span>
+              <span>{clinicSchedule?.is_configured ? `Clinic sessions: ${clinicSchedule.sessions.map((session) => `${session.label} · ${session.opens_at}–${session.closes_at}`).join("; ")}` : "Clinic hours are not configured yet."}</span>
+              <span className="availability-weekly-off ml-0 sm:ml-auto">{clinicSchedule?.weekly_closed_weekdays.length ? `Weekly closed: ${clinicSchedule.weekly_closed_weekdays.map((weekday) => weekdayLabels[weekday - 1]).join(", ")}` : "No weekly closed days set"}</span>
             </div>
 
             <div className="availability-date-entry grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto]">
@@ -1495,7 +1448,7 @@ function CareOperationsPage({
                 <span>Date to close</span>
                 <input
                   type="date"
-                  min={localDateKey(new Date())}
+                  min={currentTime ? localDateKey(new Date(currentTime)) : undefined}
                   value={newHolidayDate}
                   onChange={(event) => setNewHolidayDate(event.target.value)}
                 />
@@ -1570,12 +1523,12 @@ function CareOperationsPage({
           <div className="p-4 bg-white border border-slate-300 rounded-xl space-y-4 text-slate-800">
             {/* Slip Header */}
             <div className="text-center pb-3 border-b-2 border-slate-800">
-              <h3 className="font-extrabold text-base tracking-wide text-slate-900">DR. HAIR RESTORATION & TRICHOLOGY CENTER</h3>
-              <p className="text-[11px] text-slate-600">Sector 29, Gurugram, Delhi NCR · Tel: +91 98765 43210</p>
+              <h3 className="font-extrabold text-base tracking-wide text-slate-900">{clinicName}</h3>
+              <p className="text-[11px] text-slate-600">{clinicAddress}</p>
               <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 bg-slate-100 rounded-full font-bold text-xs text-slate-800">
                 <span>OPD TOKEN: {printingSlipBooking.tokenNumber ?? "OPD-01"}</span>
                 <span>·</span>
-                <span>{printingSlipBooking.room ?? "Room 101 (Chamber A)"}</span>
+                <span>{printingSlipBooking.room || clinicRoom}</span>
               </div>
             </div>
 
@@ -1587,9 +1540,8 @@ function CareOperationsPage({
                 <span className="text-slate-600">ID: {printingSlipBooking.patientId ?? printingSlipBooking.id}</span>
               </div>
               <div>
-                <span className="text-slate-500 block text-[10px]">CONSULTING CHIEF SURGEON</span>
-                <strong className="text-sm text-slate-900 block">Dr. Jai Bansal</strong>
-                <span className="text-slate-600">MBBS, MD · Reg. MCI-84920</span>
+                <span className="text-slate-500 block text-[10px]">CLINICIAN</span>
+                <strong className="text-sm text-slate-900 block">{printingSlipBooking.doctorName || clinicDoctor}</strong>
               </div>
             </div>
 
@@ -1605,7 +1557,7 @@ function CareOperationsPage({
               </div>
               <div className="flex justify-between py-1 border-b border-slate-200">
                 <span className="text-slate-500">Chamber Venue:</span>
-                <span className="font-medium text-slate-700">Room 101 · Dr. Hair Center</span>
+                <span className="font-medium text-slate-700">{printingSlipBooking.room || clinicRoom} · {clinicName}</span>
               </div>
             </div>
 
@@ -1613,7 +1565,7 @@ function CareOperationsPage({
             <div className="pt-2 border-t border-slate-200">
               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">DOCTOR&apos;S CLINICAL FINDINGS &amp; Rx</span>
               <div className="min-h-[90px] border border-dashed border-slate-300 rounded-lg p-2.5 text-[11px] text-slate-400">
-                Trichoscopy follicular density, scalp condition, and prescribed protocol notes written by Dr. Jai Bansal.
+                Record visit findings and the prescribed care protocol.
               </div>
             </div>
           </div>
@@ -1687,70 +1639,61 @@ function PatientDirectory({
   </div>;
 }
 
-function PatientSummary({ patients, profiles, clinicalAccess }: { patients: PatientRecord[]; profiles: Record<string, typeof patientClinicalProfiles[string]>; clinicalAccess: boolean }) {
-  if (!clinicalAccess) return <div className="kpi-grid clinical-metrics grid grid-cols-2 gap-3 lg:grid-cols-4"><ClinicalMetric icon={<UsersRound size={15} />} label="Patient records available for document tasks" value={String(patients.length)} foot="Names and IDs only" tone="blue" /></div>;
-  const patientProfiles = patients.map((patient) => profiles[patient.id] ?? createFallbackProfile(patient));
-  const activeRegimens = patientProfiles.reduce(
-    (sum, profile) => sum + (profile.prescriptionPlan ? 1 : 0),
-    0
-  );
-  const pendingCheckIns = patientProfiles.reduce(
-    (sum, profile) => sum + profile.progress.filter((p: { doctorReviewed?: boolean }) => !p.doctorReviewed).length,
-    0
-  );
-  const needsRegimen = patientProfiles.filter((profile) => !profile.prescriptionPlan).length;
-
+function PatientSummary({ patients, clinicalAccess }: { patients: PatientRecord[]; clinicalAccess: boolean }) {
+  const active = patients.filter((patient) => patient.status === "Active").length;
+  const inactive = patients.filter((patient) => patient.status === "Inactive").length;
+  const suspended = patients.filter((patient) => patient.status === "Suspended").length;
   return (
     <div className="kpi-grid clinical-metrics grid grid-cols-2 gap-3 lg:grid-cols-4">
       <ClinicalMetric
         icon={<UsersRound size={15} />}
         label="Total Patients"
         value={String(patients.length)}
-        foot="Registered in Dr. Hair"
+        foot={clinicalAccess ? "Records on this page" : "Records available for permitted tasks"}
         tone="blue"
       />
       <ClinicalMetric
-        icon={<ClipboardCheck size={15} />}
-        label="Needs Regimen"
-        value={String(needsRegimen)}
-        foot="Patients awaiting a care plan"
+        icon={<CheckCircle2 size={15} />}
+        label="Active accounts"
+        value={String(active)}
+        foot="From current patient records"
         tone="amber"
       />
       <ClinicalMetric
-        icon={<Activity size={15} />}
-        label="Pending Check-Ins"
-        value={String(pendingCheckIns)}
-        foot="Monthly photos to review"
+        icon={<Clock size={15} />}
+        label="Inactive accounts"
+        value={String(inactive)}
+        foot="From current patient records"
         tone="violet"
       />
       <ClinicalMetric
-        icon={<Pill size={15} />}
-        label="Active Regimens"
-        value={String(activeRegimens)}
-        foot="Prescriptions syncing to app"
+        icon={<AlertCircle size={15} />}
+        label="Suspended accounts"
+        value={String(suspended)}
+        foot="From current patient records"
         tone="teal"
       />
     </div>
   );
 }
 
-function BookingSummary({ bookings }: { bookings: BookingRecord[] }) {
+function BookingSummary({ bookings, clinicDoctor }: { bookings: BookingRecord[]; clinicDoctor: string }) {
   const totalBookings = bookings.length;
   const inWaitingRoom = bookings.filter((b) => b.opdStatus === "Arrived").length;
   const inChamber = bookings.filter((b) => b.opdStatus === "In Consultation").length;
   const completed = bookings.filter((b) => b.opdStatus === "Completed" || b.status === "Completed").length;
 
   const paidBookings = bookings.filter((b) => b.paymentStatus === "Paid");
-  const paidTotal = paidBookings.reduce((sum, b) => sum + (b.consultationFee ?? 500), 0);
+  const paidTotal = paidBookings.reduce((sum, b) => sum + (b.consultationFee ?? 0), 0);
 
   const pendingBookings = bookings.filter((b) => (b.paymentStatus === "Pending" || !b.paymentStatus) && !["Cancelled", "No show"].includes(b.status));
-  const pendingTotal = pendingBookings.reduce((sum, b) => sum + (b.consultationFee ?? 500), 0);
+  const pendingTotal = pendingBookings.reduce((sum, b) => sum + (b.consultationFee ?? 0), 0);
 
   return (
     <div className="kpi-grid clinical-metrics grid grid-cols-2 gap-3 lg:grid-cols-4">
       <ClinicalMetric
         icon={<Building2 size={15} />}
-        label="Dr. Jai Bansal's OPD Queue"
+        label={`${clinicDoctor} · appointment queue`}
         value={String(totalBookings)}
         foot={`${inWaitingRoom} waiting · ${inChamber} in chamber`}
         tone="blue"
@@ -1790,7 +1733,7 @@ function localDateKey(date: Date) {
 function bookingDateKey(booking: BookingRecord) {
   if (booking.startsAt) {
     const date = new Date(booking.startsAt);
-    if (!Number.isNaN(date.valueOf())) return localDateKey(date);
+    if (!Number.isNaN(date.valueOf())) return zonedDateKey(date, booking.timezone);
   }
   if (/\btoday\b/i.test(booking.date)) return localDateKey(new Date());
   if (/\btomorrow\b/i.test(booking.date)) {
@@ -1830,7 +1773,18 @@ function formatBookingDateTime(booking: BookingRecord) {
   const timestamp = bookingTimestamp(booking);
   if (!timestamp) return booking.date;
   const date = new Date(timestamp);
-  return `${new Intl.DateTimeFormat("en-IN", { weekday: "short", day: "numeric", month: "short" }).format(date)} · ${new Intl.DateTimeFormat("en-IN", { hour: "numeric", minute: "2-digit" }).format(date)}`;
+  const options = { timeZone: booking.timezone || "Asia/Kolkata" };
+  return `${new Intl.DateTimeFormat("en-IN", { ...options, weekday: "short", day: "numeric", month: "short" }).format(date)} · ${new Intl.DateTimeFormat("en-IN", { ...options, hour: "numeric", minute: "2-digit" }).format(date)}`;
+}
+
+function zonedDateKey(date: Date, timeZone = "Asia/Kolkata") {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
+    const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+    return `${values.year}-${values.month}-${values.day}`;
+  } catch {
+    return localDateKey(date);
+  }
 }
 
 function bookingStatusLabel(booking: BookingRecord) {
@@ -1850,18 +1804,54 @@ function bookingStatusTone(booking: BookingRecord) {
   return "confirmed";
 }
 
-function appointmentSlotStart(dateKey: string, slot: string) {
+function appointmentSlotStart(dateKey: string, slot: string, timeZone = "Asia/Kolkata") {
   const [year, month, day] = dateKey.split("-").map(Number);
   const [clock, period] = slot.split(" ");
   const [rawHour, minute] = clock.split(":").map(Number);
   let hour = rawHour % 12;
   if (period === "PM") hour += 12;
-  return new Date(year, month - 1, day, hour, minute, 0, 0);
+  const target = Date.UTC(year, month - 1, day, hour, minute);
+  let candidate = target;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const parts = new Intl.DateTimeFormat("en-GB", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(candidate));
+    const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+    const represented = Date.UTC(Number(values.year), Number(values.month) - 1, Number(values.day), Number(values.hour), Number(values.minute));
+    const correction = target - represented;
+    candidate += correction;
+    if (correction === 0) break;
+  }
+  return new Date(candidate);
 }
 
-function isSundayDateKey(dateKey: string) {
+function isClosedWeekday(dateKey: string, closedWeekdays: number[]) {
   const [year, month, day] = dateKey.split("-").map(Number);
-  return new Date(year, month - 1, day).getDay() === 0;
+  const weekday = new Date(year, month - 1, day).getDay() || 7;
+  return closedWeekdays.includes(weekday);
+}
+
+function makeClinicSlotGroups(schedule: ClinicSchedule | null) {
+  const interval = schedule?.slot_interval_minutes;
+  if (!schedule?.is_configured || interval == null || interval <= 0) return [];
+  const duration = schedule.appointment_duration_minutes ?? interval;
+  return schedule.sessions.map((session) => {
+    const opensAt = clockMinutes(session.opens_at);
+    const closesAt = clockMinutes(session.closes_at);
+    if (opensAt == null || closesAt == null || closesAt < opensAt) return { label: session.label, slots: [] as string[] };
+    const slots: string[] = [];
+    for (let minute = opensAt; minute + duration <= closesAt; minute += interval) slots.push(formatClinicTime(minute));
+    return { label: `${session.label} · ${session.opens_at}–${session.closes_at}`, slots };
+  });
+}
+
+function clockMinutes(value: string) {
+  const match = /^(\d{2}):(\d{2})$/.exec(value);
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+}
+
+function formatClinicTime(minutes: number) {
+  const hour24 = Math.floor(minutes / 60);
+  const hour12 = hour24 % 12 || 12;
+  return `${String(hour12).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")} ${hour24 < 12 ? "AM" : "PM"}`;
 }
 
 function nextAppointmentAction(booking: BookingRecord) {
@@ -1895,7 +1885,7 @@ function AppointmentList({ bookings, onOpen, onRecordPayment, onAdvance }: {
         </div>
         <div className="appointment-card-service min-[461px]:col-span-2 min-[761px]:col-span-1 min-[761px]:col-start-2 min-[761px]:row-start-1 min-[1101px]:col-auto min-[1101px]:row-auto">
           <strong>{booking.service}</strong>
-          <span><Building2 size={12} />{booking.room ?? "Room 101"} · {booking.doctorName ?? "Dr. Jai Bansal"}</span>
+          <span><Building2 size={12} />{booking.room || "Location to be confirmed"} · {booking.doctorName || "Clinic team"}</span>
           {(booking.cancellationReason || booking.cancellation_reason) && (
             <span className="text-[11px] font-medium text-rose-600 block mt-0.5">
               Reason: {booking.cancellationReason || booking.cancellation_reason}
@@ -1916,7 +1906,7 @@ function AppointmentList({ bookings, onOpen, onRecordPayment, onAdvance }: {
           {booking.paymentStatus === "Paid" ? (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
               <CheckCircle2 size={11} className="text-emerald-600" />
-              Paid · ₹{booking.consultationFee ?? 500} {booking.paymentMethod ? `(${booking.paymentMethod})` : ""}
+              Paid · {booking.consultationFee == null ? "fee not set" : `₹${booking.consultationFee}`} {booking.paymentMethod ? `(${booking.paymentMethod})` : ""}
             </span>
           ) : booking.paymentStatus === "Waived" || booking.consultationFee === 0 || booking.paymentMethod === "Free First Consultation" ? (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-50 text-teal-700 border border-teal-200">
@@ -1931,7 +1921,7 @@ function AppointmentList({ bookings, onOpen, onRecordPayment, onAdvance }: {
           ) : (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
               <Clock size={11} className="text-amber-600" />
-              Pay at clinic · ₹{booking.consultationFee ?? 500}
+              Pay at clinic · {booking.consultationFee == null ? "fee not set" : `₹${booking.consultationFee}`}
             </span>
           )}
         </div>

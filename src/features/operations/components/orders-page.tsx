@@ -21,8 +21,8 @@ interface BackendOrder {
   items?: Array<{ title?: string; name?: string; quantity?: number; price?: number }>;
   pricing?: { total?: number; subtotal?: number; discount?: number; delivery_fee?: number; tax?: number; coupon_code?: string };
   shipping_address?: { name?: string; phone?: string; house_number?: string; street?: string; city?: string; state?: string; pincode?: string; formattedAddress?: string };
-  payment?: { payment_status?: string; gateway?: string; refund_amount?: number; refund_id?: string };
-  fulfillment?: { status?: string; courier?: string; tracking_number?: string; shiprocket_status?: string; shiprocket_shipment_id?: string; cancellation_reason?: string; return_reason?: string };
+  payment?: { payment_status?: string; gateway?: string; gateway_status?: string; transaction_id?: string; refund_amount?: number; refund_id?: string; refund_status?: "pending" | "processed" | "failed" | ""; refund_pending_amount?: number; refunds?: Array<{ id?: string; amount?: number; currency?: string; status?: "pending" | "processed" | "failed"; updated_at?: string }>; last_failure_code?: string };
+  fulfillment?: { status?: string; courier?: string; tracking_number?: string; tracking_url?: string; shiprocket_status?: string; shiprocket_shipment_id?: string; shiprocket_return_shipment_id?: string; shiprocket_return_awb?: string; shiprocket_pickup_status?: string; shiprocket_rate?: number; shiprocket_eta?: string; shiprocket_label_url?: string; shiprocket_manifest_url?: string; cancellation_reason?: string; return_reason?: string };
   timeline?: Array<{ label?: string; timestamp?: string; done?: boolean }>;
   created_at?: string;
   date?: string;
@@ -48,6 +48,8 @@ interface LiveTrackingData {
   track_url: string;
   updated_at: string;
   events: LiveTrackingEvent[];
+  tracking_mode?: "shiprocket" | "external" | "webhook";
+  is_stale_provider_fallback?: boolean;
 }
 
 function mapBackendOrder(apiOrder: BackendOrder): OrderRecord {
@@ -69,13 +71,38 @@ function mapBackendOrder(apiOrder: BackendOrder): OrderRecord {
     totalAmount: total,
     status: (apiOrder.fulfillment?.status || apiOrder.status || "New") as OrderFulfillmentStatus,
     paymentStatus: (apiOrder.payment?.payment_status || apiOrder.payment_status || "Pending") as OrderPaymentStatus,
-    paymentMethod: apiOrder.payment?.gateway === "cod" ? "Cash on Delivery" : "Online Gateway",
+    paymentMethod: apiOrder.payment?.gateway === "razorpay"
+      ? "Online Gateway"
+      : apiOrder.payment?.gateway === "cod"
+        ? "Cash on Delivery"
+        : "Offline payment",
     couponCode: apiOrder.pricing?.coupon_code,
     courier: apiOrder.fulfillment?.courier || "",
     trackingNumber: apiOrder.fulfillment?.tracking_number || "",
+    trackingUrl: apiOrder.fulfillment?.tracking_url || "",
     shiprocketStatus: apiOrder.fulfillment?.shiprocket_status || "",
     shiprocketShipmentId: apiOrder.fulfillment?.shiprocket_shipment_id || "",
+    shiprocketPickupStatus: apiOrder.fulfillment?.shiprocket_pickup_status || "",
+    shiprocketRate: apiOrder.fulfillment?.shiprocket_rate ?? 0,
+    shiprocketEta: apiOrder.fulfillment?.shiprocket_eta || "",
+    shiprocketLabelUrl: apiOrder.fulfillment?.shiprocket_label_url || "",
+    shiprocketManifestUrl: apiOrder.fulfillment?.shiprocket_manifest_url || "",
+    shiprocketReturnShipmentId: apiOrder.fulfillment?.shiprocket_return_shipment_id || "",
+    shiprocketReturnAwb: apiOrder.fulfillment?.shiprocket_return_awb || "",
     refundAmount: apiOrder.payment?.refund_amount ?? 0,
+    refundPendingAmount: apiOrder.payment?.refund_pending_amount ?? 0,
+    refundStatus: apiOrder.payment?.refund_status ?? "",
+    paymentReference: apiOrder.payment?.transaction_id || "",
+    refundReference: apiOrder.payment?.refund_id || "",
+    refundHistory: (apiOrder.payment?.refunds || []).map((refund) => ({
+      id: String(refund.id || ""),
+      amount: Number(refund.amount) || 0,
+      currency: String(refund.currency || "INR"),
+      status: refund.status || "pending",
+      updatedAt: refund.updated_at,
+    })),
+    gatewayAttemptStatus: apiOrder.payment?.gateway_status || "",
+    gatewayFailureCode: apiOrder.payment?.last_failure_code || "",
     refundReason: "",
     cancellationReason: apiOrder.fulfillment?.cancellation_reason || "",
     returnReason: apiOrder.fulfillment?.return_reason || "",
@@ -137,17 +164,22 @@ function progressFor(order: OrderRecord): string {
 
 function nextAction(order: OrderRecord) {
   if ((order.status === "New" || order.status === "Needs attention") && order.paymentStatus === "Paid") return order.status === "New" ? "Start preparing" : "Resume fulfilment";
-  if (order.status === "Preparing") return "Add tracking & ship";
+  if (order.status === "Preparing") return order.shiprocketShipmentId ? "Confirm courier pickup" : "Add tracking & ship";
   if (order.status === "Shipped") return "Mark delivered";
   return "Close details";
 }
 
 function canCancel(order: OrderRecord) {
-  return ["New", "Preparing", "Needs attention"].includes(order.status);
+  return ["New", "Preparing", "Needs attention"].includes(order.status)
+    && !order.shiprocketShipmentId
+    && !order.trackingNumber;
 }
 
 function canRefund(order: OrderRecord) {
-  return order.paymentStatus === "Paid" || order.paymentStatus === "Partially refunded";
+  return (order.paymentStatus === "Paid" || order.paymentStatus === "Partially refunded")
+    && order.paymentMethod === "Online Gateway"
+    && order.refundStatus !== "pending"
+    && (order.refundPendingAmount ?? 0) <= 0;
 }
 
 function canStartPreparing(order: OrderRecord) {
@@ -168,13 +200,14 @@ export function OrdersPage({ globalSearch, onToast, onAudit = () => {}, canExpor
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [trackingState, setTrackingState] = useState<{ orderId: string; data: LiveTrackingData | null; loading: boolean; error: string }>({ orderId: "", data: null, loading: false, error: "" });
   const [trackingRefreshKey, setTrackingRefreshKey] = useState(0);
-  const [dispatchByOrder, setDispatchByOrder] = useState<Record<string, { courier: string; trackingNumber: string }>>({});
+  const [dispatchByOrder, setDispatchByOrder] = useState<Record<string, { courier: string; trackingNumber: string; trackingUrl: string }>>({});
   const [shiprocketLoading, setShiprocketLoading] = useState(false);
   const [cancelOrder, setCancelOrder] = useState<OrderRecord | null>(null);
   const [cancelReason, setCancelReason] = useState("Customer requested cancellation");
   const [refundOrder, setRefundOrder] = useState<OrderRecord | null>(null);
   const [refundAmount, setRefundAmount] = useState("");
   const [refundReason, setRefundReason] = useState("Customer return");
+  const [restockReturnedItems, setRestockReturnedItems] = useState(false);
   const [returnOrder, setReturnOrder] = useState<OrderRecord | null>(null);
   const [returnReason, setReturnReason] = useState("Changed my mind");
 
@@ -217,7 +250,7 @@ export function OrdersPage({ globalSearch, onToast, onAudit = () => {}, canExpor
 
   const normalizedOrders = useMemo(() => orders.map(normalizeOrder), [orders]);
   const selectedOrder = normalizedOrders.find((order) => order.id === selectedOrderId) ?? null;
-  const dispatchDetails = selectedOrder ? dispatchByOrder[selectedOrder.id] ?? { courier: selectedOrder.courier ?? "", trackingNumber: selectedOrder.trackingNumber ?? "" } : { courier: "", trackingNumber: "" };
+  const dispatchDetails = selectedOrder ? dispatchByOrder[selectedOrder.id] ?? { courier: selectedOrder.courier ?? "", trackingNumber: selectedOrder.trackingNumber ?? "", trackingUrl: selectedOrder.trackingUrl ?? "" } : { courier: "", trackingNumber: "", trackingUrl: "" };
   const search = `${globalSearch} ${query}`.trim().toLowerCase();
   const productOptions = [...new Set(normalizedOrders.map((order) => order.item))].sort();
   const couponOptions = [...new Set(normalizedOrders.map((order) => order.couponCode).filter((code): code is string => Boolean(code)))].sort();
@@ -236,7 +269,9 @@ export function OrdersPage({ globalSearch, onToast, onAudit = () => {}, canExpor
   useEffect(() => {
     const orderId = selectedOrder?.id;
     const shipmentId = selectedOrder?.shiprocketShipmentId;
-    if (!orderId || !shipmentId) return;
+    const hasManualTracking = Boolean(selectedOrder?.trackingNumber && selectedOrder?.trackingUrl);
+    const hasReturnTracking = Boolean(selectedOrder?.shiprocketReturnAwb);
+    if (!orderId || (!shipmentId && !hasManualTracking && !hasReturnTracking)) return;
 
     let ignore = false;
     const loadTracking = async () => {
@@ -261,7 +296,7 @@ export function OrdersPage({ globalSearch, onToast, onAudit = () => {}, canExpor
       ignore = true;
       window.clearInterval(timer);
     };
-  }, [selectedOrder?.id, selectedOrder?.shiprocketShipmentId, trackingRefreshKey]);
+  }, [selectedOrder?.id, selectedOrder?.shiprocketShipmentId, selectedOrder?.shiprocketReturnAwb, selectedOrder?.trackingNumber, selectedOrder?.trackingUrl, trackingRefreshKey]);
 
   const selectedTracking = trackingState.orderId === selectedOrder?.id ? trackingState : null;
 
@@ -298,13 +333,28 @@ export function OrdersPage({ globalSearch, onToast, onAudit = () => {}, canExpor
       if (!res.ok) throw new Error(json.message || "Shiprocket shipment could not be created.");
       await reloadOrders();
       onAudit("created Shiprocket shipment for", order.id);
-      onToast(`${order.id} sent to Shiprocket. AWB: ${json.data?.fulfillment?.awb_code || json.data?.fulfillment?.tracking_number || "created"}.`);
+      onToast(`Shiprocket shipment created. Pickup requested; awaiting courier handoff. AWB: ${json.data?.fulfillment?.awb_code || json.data?.fulfillment?.tracking_number || "created"}.`);
     } catch (error) {
       onToast(error instanceof Error ? error.message : "Shiprocket shipment could not be created.");
       await reloadOrders();
     } finally {
       setShiprocketLoading(false);
     }
+  };
+
+  const retryShiprocketPickup = async (order: OrderRecord) => {
+    setShiprocketLoading(true);
+    try {
+      const res = await fetch(`/api/admin/orders/${encodeURIComponent(order.id)}/shiprocket/pickup/retry`, { method: "POST" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.message || "Pickup retry failed.");
+      await reloadOrders();
+      onAudit("retried Shiprocket pickup for", order.id);
+      onToast("Pickup retry sent. Check the Shiprocket response and manifest before handoff.");
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "Pickup retry failed.");
+      await reloadOrders();
+    } finally { setShiprocketLoading(false); }
   };
 
   const handlePrimaryAction = async () => {
@@ -326,12 +376,15 @@ export function OrdersPage({ globalSearch, onToast, onAudit = () => {}, canExpor
             status: "Shipped",
             courier: dispatchDetails.courier.trim(),
             tracking_number: dispatchDetails.trackingNumber.trim(),
+            tracking_url: dispatchDetails.trackingUrl.trim(),
           }),
         });
         await requireSuccess(res);
         await reloadOrders();
         onAudit("shipped order", selectedOrder.id);
-        onToast(`${selectedOrder.id} marked as shipped.`);
+        onToast(selectedOrder.shiprocketShipmentId
+          ? `${selectedOrder.id} pickup confirmed and marked as shipped.`
+          : `${selectedOrder.id} marked as shipped.`);
       } catch (error) {
         onToast(error instanceof Error ? error.message : "Could not ship order.");
       }
@@ -381,7 +434,7 @@ export function OrdersPage({ globalSearch, onToast, onAudit = () => {}, canExpor
       const res = await fetch(`/api/admin/orders/${returnOrder.id}/fulfillment`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "Return requested" }),
+        body: JSON.stringify({ status: "Return requested", return_reason: returnReason }),
       });
       await requireSuccess(res);
       await reloadOrders();
@@ -394,25 +447,46 @@ export function OrdersPage({ globalSearch, onToast, onAudit = () => {}, canExpor
     }
   };
 
+  const createReversePickup = async (order: OrderRecord) => {
+    if (!window.confirm(`Create a reverse pickup from the patient for order ${order.id}? Shiprocket may charge your wallet.`)) return;
+    setShiprocketLoading(true);
+    try {
+      const res = await fetch(`/api/admin/orders/${encodeURIComponent(order.id)}/shiprocket/return`, { method: "POST" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.message || "Reverse pickup could not be created.");
+      await reloadOrders();
+      onAudit("created Shiprocket reverse pickup for", order.id);
+      onToast(`Reverse pickup created. AWB: ${json.data?.fulfillment?.shiprocket_return_awb || "created"}.`);
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "Reverse pickup could not be created.");
+      await reloadOrders();
+    } finally { setShiprocketLoading(false); }
+  };
+
   const confirmRefund = async () => {
     if (!refundOrder) return;
     const amount = Math.round(Number(refundAmount));
     const previousRefund = refundOrder.refundAmount ?? 0;
-    const remaining = parseAmount(refundOrder) - previousRefund;
+    const pendingRefund = refundOrder.refundPendingAmount ?? 0;
+    const remaining = parseAmount(refundOrder) - previousRefund - pendingRefund;
     if (!Number.isFinite(amount) || amount <= 0 || amount > remaining || !refundReason.trim()) {
       onToast(`Enter a refund between ₹1 and ${formatCurrency(remaining)} and add a reason.`);
       return;
     }
     try {
-      const res = await fetch(`/api/admin/orders/${refundOrder.id}/refund`, {
+      const res = await fetch(`/api/admin/orders/${encodeURIComponent(refundOrder.id)}/refund`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount, reason: refundReason, restock_inventory: true }),
+        body: JSON.stringify({ amount, reason: refundReason, restock_inventory: restockReturnedItems }),
       });
-      await requireSuccess(res);
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(result.message || "Razorpay refund could not be requested.");
       await reloadOrders();
-      onAudit("recorded refund", `${refundOrder.id} · ${formatCurrency(amount)}`);
-      onToast(`${formatCurrency(amount)} refund processed and stock restored.`);
+      const refundStatus = result.data?.payment?.refund_status;
+      onAudit(refundStatus === "processed" ? "processed Razorpay refund for" : "requested Razorpay refund for", `${refundOrder.id} · ${formatCurrency(amount)}`);
+      onToast(refundStatus === "processed"
+        ? `Razorpay confirmed the ${formatCurrency(amount)} refund${restockReturnedItems ? "; returned items restocked" : ""}.`
+        : `Razorpay accepted the ${formatCurrency(amount)} refund request. It is pending provider confirmation.`);
       setRefundOrder(null);
       setSelectedOrderId(null);
     } catch (error) {
@@ -457,7 +531,7 @@ export function OrdersPage({ globalSearch, onToast, onAudit = () => {}, canExpor
     setDateCutoff(days ? Date.now() - days * 24 * 60 * 60 * 1000 : null);
   };
   const clearFilters = () => { setQuery(""); setPaymentFilter("Any payment"); setDateFilter("All dates"); setDateCutoff(null); setProductFilter("All products"); setCouponFilter("All coupons"); setTab("All orders"); setSelectedIds([]); };
-  const setRefundTarget = (order: OrderRecord) => { setRefundOrder(order); setRefundAmount(String(Math.max(0, parseAmount(order) - (order.refundAmount ?? 0)))); setRefundReason("Customer return"); };
+  const setRefundTarget = (order: OrderRecord) => { setRefundOrder(order); setRefundAmount(String(Math.max(0, parseAmount(order) - (order.refundAmount ?? 0) - (order.refundPendingAmount ?? 0)))); setRefundReason("Customer return"); setRestockReturnedItems(false); };
   const toggleSelection = (id: string, checked: boolean) => setSelectedIds((current) => checked ? [...new Set([...current, id])] : current.filter((item) => item !== id));
   const selectableVisible = filteredOrders.filter(canStartPreparing).map((order) => order.id);
   const allVisibleSelected = selectableVisible.length > 0 && selectableVisible.every((id) => selectedIds.includes(id));
@@ -548,17 +622,19 @@ export function OrdersPage({ globalSearch, onToast, onAudit = () => {}, canExpor
 
         {selectedOrder && <Modal className="order-details-modal order-workflow-modal" title={`Order ${selectedOrder.id}`} description={`${selectedOrder.customer} · ${selectedOrder.date}`} submitLabel={nextAction(selectedOrder)} onClose={() => setSelectedOrderId(null)} onSubmit={handlePrimaryAction}>
           <OrderDetails order={selectedOrder} relatedOrders={normalizedOrders.filter((order) => order.customerEmail && order.customerEmail === selectedOrder.customerEmail && order.id !== selectedOrder.id).slice(0, 4)} />
-          {selectedOrder.shiprocketShipmentId && <LiveTrackingPanel tracking={selectedTracking?.data ?? null} loading={selectedTracking?.loading ?? false} error={selectedTracking?.error ?? ""} onRefresh={() => setTrackingRefreshKey((key) => key + 1)} />}
-          {selectedOrder.status === "Preparing" && <div className="shipping-entry"><div className="field-heading"><Truck size={14} />Dispatch details</div>{selectedOrder.shiprocketShipmentId ? <p className="form-help">Shiprocket shipment {selectedOrder.shiprocketShipmentId} · AWB {selectedOrder.trackingNumber || "pending"}</p> : selectedOrder.shiprocketStatus === "needs_review" || selectedOrder.shiprocketStatus === "processing" ? <div className="order-action-notice"><ShieldAlert size={14} /><span>Shiprocket request needs reconciliation in the Shiprocket panel before retrying.</span></div> : <button className="button button-secondary" type="button" disabled={shiprocketLoading} onClick={() => void createShiprocketShipment(selectedOrder)}><Truck size={13} />{shiprocketLoading ? "Creating Shiprocket shipment…" : "Create Shiprocket shipment & request pickup"}</button>}<div className="form-grid-two"><div className="field"><label htmlFor="order-courier">Courier</label><input id="order-courier" value={dispatchDetails.courier} onChange={(event) => setDispatchByOrder((current) => ({ ...current, [selectedOrder.id]: { ...dispatchDetails, courier: event.target.value } }))} placeholder="e.g. Delhivery" /></div><div className="field"><label htmlFor="order-tracking">Tracking / AWB number</label><input id="order-tracking" value={dispatchDetails.trackingNumber} onChange={(event) => setDispatchByOrder((current) => ({ ...current, [selectedOrder.id]: { ...dispatchDetails, trackingNumber: event.target.value } }))} placeholder="Enter courier tracking number" /></div></div><p className="form-help">Use Shiprocket to create a shipment and request pickup, or enter courier details manually.</p></div>}
+          {(selectedOrder.shiprocketShipmentId || selectedOrder.shiprocketReturnAwb || (selectedOrder.trackingNumber && selectedOrder.trackingUrl)) && <LiveTrackingPanel tracking={selectedTracking?.data ?? null} loading={selectedTracking?.loading ?? false} error={selectedTracking?.error ?? ""} onRefresh={() => setTrackingRefreshKey((key) => key + 1)} />}
+          {selectedOrder.shiprocketShipmentId && <div className="order-action-notice"><Truck size={14} /><span>Shiprocket {selectedOrder.shiprocketStatus || "shipment created"}{selectedOrder.shiprocketPickupStatus ? ` · pickup ${selectedOrder.shiprocketPickupStatus}` : " · pickup pending"}{selectedOrder.shiprocketRate ? ` · quoted ₹${selectedOrder.shiprocketRate}` : ""}{selectedOrder.shiprocketEta ? ` · ETA ${selectedOrder.shiprocketEta}` : ""}</span>{selectedOrder.shiprocketLabelUrl && <a href={selectedOrder.shiprocketLabelUrl} target="_blank" rel="noreferrer">Label</a>}{selectedOrder.shiprocketManifestUrl && <a href={selectedOrder.shiprocketManifestUrl} target="_blank" rel="noreferrer">Manifest</a>}</div>}
+          {selectedOrder.status === "Preparing" && <div className="shipping-entry"><div className="field-heading"><Truck size={14} />Dispatch details</div>{selectedOrder.shiprocketShipmentId ? <><p className="form-help">Shiprocket shipment {selectedOrder.shiprocketShipmentId} · AWB {selectedOrder.trackingNumber || "pending"}. Confirm pickup only after the courier has collected the parcel.</p>{/fail|error|exception/i.test(`${selectedOrder.shiprocketPickupStatus} ${selectedOrder.shiprocketStatus}`) && <button className="button button-secondary" type="button" disabled={shiprocketLoading} onClick={() => void retryShiprocketPickup(selectedOrder)}>{shiprocketLoading ? "Retrying pickup…" : "Retry failed pickup"}</button>}</> : selectedOrder.shiprocketStatus === "needs_review" || selectedOrder.shiprocketStatus === "processing" ? <div className="order-action-notice"><ShieldAlert size={14} /><span>Shiprocket request needs reconciliation in the Shiprocket panel before retrying.</span></div> : <button className="button button-secondary" type="button" disabled={shiprocketLoading} onClick={() => void createShiprocketShipment(selectedOrder)}><Truck size={13} />{shiprocketLoading ? "Creating Shiprocket shipment…" : "Create Shiprocket shipment & request pickup"}</button>}<div className="form-grid-two"><div className="field"><label htmlFor="order-courier">Courier</label><input id="order-courier" value={dispatchDetails.courier} onChange={(event) => setDispatchByOrder((current) => ({ ...current, [selectedOrder.id]: { ...dispatchDetails, courier: event.target.value } }))} placeholder="e.g. Delhivery" /></div><div className="field"><label htmlFor="order-tracking">Tracking / AWB number</label><input id="order-tracking" value={dispatchDetails.trackingNumber} onChange={(event) => setDispatchByOrder((current) => ({ ...current, [selectedOrder.id]: { ...dispatchDetails, trackingNumber: event.target.value } }))} placeholder="Enter courier tracking number" /></div></div>{!selectedOrder.shiprocketShipmentId && <div className="field"><label htmlFor="order-tracking-url">Courier tracking link (HTTPS, optional)</label><input id="order-tracking-url" type="url" value={dispatchDetails.trackingUrl} onChange={(event) => setDispatchByOrder((current) => ({ ...current, [selectedOrder.id]: { ...dispatchDetails, trackingUrl: event.target.value } }))} placeholder="https://courier.example/track/…" /></div>}<p className="form-help">Use Shiprocket to create a shipment and request pickup, or enter courier details manually. Manual links are shown as an external tracking option.</p></div>}
           {selectedOrder.paymentStatus !== "Paid" && selectedOrder.paymentMethod !== "Cash on Delivery" && ["New", "Needs attention"].includes(selectedOrder.status) && <div className="order-action-notice"><ShieldAlert size={14} /><span>Payment is {selectedOrder.paymentStatus?.toLowerCase() ?? "not confirmed"}. Confirm payment before starting fulfilment.</span></div>}
           <div className="order-modal-actions">{canCancel(selectedOrder) && <button className="button button-secondary danger-button" onClick={() => { setCancelOrder(selectedOrder); setCancelReason("Customer requested cancellation"); }}>Cancel order</button>}{canRefund(selectedOrder) && <button className="button button-secondary" onClick={() => setRefundTarget(selectedOrder)}><Undo2 size={13} />Record refund</button>}</div>
           {selectedOrder.status === "Delivered" && <div className="order-modal-actions"><button className="button button-secondary" onClick={() => { setReturnOrder(selectedOrder); setReturnReason("Changed my mind"); }}>Log a return request</button></div>}
+          {selectedOrder.status === "Return requested" && <div className="order-action-notice"><Truck size={14} /><span>Return review · {selectedOrder.returnReason || "Reason not recorded"}{selectedOrder.shiprocketReturnAwb ? ` · Reverse AWB ${selectedOrder.shiprocketReturnAwb}` : ""}</span>{!selectedOrder.shiprocketReturnAwb && <button className="button button-secondary" type="button" disabled={shiprocketLoading || selectedOrder.shiprocketStatus === "return_needs_review" || selectedOrder.shiprocketStatus === "return_processing"} onClick={() => void createReversePickup(selectedOrder)}>{shiprocketLoading ? "Creating reverse pickup…" : "Create reverse pickup"}</button>}</div>}
           <p className="form-help order-demo-footnote">Actions sync with backend API and live patient order timeline.</p>
         </Modal>}
 
         {cancelOrder && <Modal title="Cancel order" description={`${cancelOrder.id} · ${cancelOrder.customer}`} submitLabel="Record cancellation" onClose={() => setCancelOrder(null)} onSubmit={confirmCancellation}><div className="field"><label htmlFor="cancel-reason">Cancellation reason</label><select id="cancel-reason" value={cancelReason} onChange={(event) => setCancelReason(event.target.value)}>{["Customer requested cancellation", "Payment issue", "Item unavailable", "Address issue", "Other"].map((reason) => <option key={reason}>{reason}</option>)}</select></div><div className="order-action-notice"><ShieldAlert size={14} /><span>Cancellation does not refund a captured payment automatically. Record the refund separately after confirming it with the payment provider.</span></div></Modal>}
         {returnOrder && <Modal title="Log a return request" description={`${returnOrder.id} · ${returnOrder.customer}`} submitLabel="Save return request" onClose={() => setReturnOrder(null)} onSubmit={confirmReturn}><div className="field"><label htmlFor="return-reason">Return reason</label><select id="return-reason" value={returnReason} onChange={(event) => setReturnReason(event.target.value)}>{["Changed my mind", "Damaged item", "Wrong item sent", "Product quality issue", "Other"].map((reason) => <option key={reason}>{reason}</option>)}</select></div><div className="order-action-notice"><Truck size={14} /><span>This creates a return review task for the operations team.</span></div></Modal>}
-        {refundOrder && <Modal title="Record a refund" description={`${refundOrder.id} · ${refundOrder.customer}`} submitLabel="Save refund record" onClose={() => setRefundOrder(null)} onSubmit={confirmRefund}><div className="order-refund-context"><BadgeIndianRupee size={16} /><span>Remaining refundable amount<strong>{formatCurrency(Math.max(0, parseAmount(refundOrder) - (refundOrder.refundAmount ?? 0)))}</strong></span></div><div className="form-grid-two"><div className="field"><label htmlFor="refund-amount">Refund amount (₹)</label><input id="refund-amount" type="number" min="1" step="1" max={Math.max(0, parseAmount(refundOrder) - (refundOrder.refundAmount ?? 0))} value={refundAmount} onChange={(event) => setRefundAmount(event.target.value)} /></div><div className="field"><label htmlFor="refund-reason">Reason</label><select id="refund-reason" value={refundReason} onChange={(event) => setRefundReason(event.target.value)}>{["Customer return", "Damaged item", "Wrong item sent", "Partial order issue", "Customer goodwill", "Other"].map((reason) => <option key={reason}>{reason}</option>)}</select></div></div><div className="order-action-notice"><ShieldAlert size={14} /><span>This logs the refund status against the order in the database. Ensure payment gateway refund is processed.</span></div></Modal>}
+        {refundOrder && <Modal title="Request Razorpay refund" description={`${refundOrder.id} · ${refundOrder.customer}`} submitLabel="Submit refund request" onClose={() => setRefundOrder(null)} onSubmit={confirmRefund}><div className="order-refund-context"><BadgeIndianRupee size={16} /><span>Remaining refundable amount<strong>{formatCurrency(Math.max(0, parseAmount(refundOrder) - (refundOrder.refundAmount ?? 0) - (refundOrder.refundPendingAmount ?? 0)))}</strong></span></div><div className="form-grid-two"><div className="field"><label htmlFor="refund-amount">Refund amount (₹)</label><input id="refund-amount" type="number" min="1" step="1" max={Math.max(0, parseAmount(refundOrder) - (refundOrder.refundAmount ?? 0) - (refundOrder.refundPendingAmount ?? 0))} value={refundAmount} onChange={(event) => setRefundAmount(event.target.value)} /></div><div className="field"><label htmlFor="refund-reason">Reason</label><select id="refund-reason" value={refundReason} onChange={(event) => setRefundReason(event.target.value)}>{["Customer return", "Damaged item", "Wrong item sent", "Partial order issue", "Customer goodwill", "Other"].map((reason) => <option key={reason}>{reason}</option>)}</select></div></div><label className="order-action-notice"><input type="checkbox" checked={restockReturnedItems} disabled={Number(refundAmount) + (refundOrder.refundAmount ?? 0) < parseAmount(refundOrder)} onChange={(event) => setRestockReturnedItems(event.target.checked)} /><span>Restock all returned items after Razorpay confirms a full refund. Partial refunds cannot restock the whole order.</span></label><div className="order-action-notice"><ShieldAlert size={14} /><span>The refund is sent to Razorpay. The order will show pending until Razorpay confirms processing.</span></div></Modal>}
       </>
     )}
   </div>;
@@ -570,7 +646,8 @@ function OrderDetails({ order, relatedOrders }: { order: OrderRecord; relatedOrd
     {relatedOrders.length > 0 && <div className="order-customer-history"><div className="field-heading"><UserRound size={14} />Recent customer orders</div>{relatedOrders.map((related) => <div key={related.id}><span><strong>{related.id}</strong><small>{related.date} · {related.item}</small></span><span><StatusPill status={related.status} /><strong>{formatCurrency(parseAmount(related))}</strong></span></div>)}</div>}
     <div className="order-detail-block"><div className="field-heading"><PackageCheck size={14} />Items ordered</div>{(order.items ?? [{ name: order.item, quantity: 1, unitPrice: 0 }]).map((item, index) => <div className="order-line-item" key={`${item.name}-${index}`}><div><strong>{item.name}</strong><span>Qty {item.quantity}</span></div><strong>{formatCurrency(item.unitPrice * item.quantity)}</strong></div>)}</div>
     <div className="order-total-card"><MoneyLine label="Subtotal" amount={order.subtotal ?? 0} /><MoneyLine label="Discount" amount={-(order.discount ?? 0)} />{order.couponCode && <MoneyLine label="Coupon code" text={order.couponCode} />}<MoneyLine label="Shipping" amount={order.shipping ?? 0} /><MoneyLine label="Tax" amount={order.tax ?? 0} /><MoneyLine label="Order total" amount={0} totalText={formatCurrency(parseAmount(order))} />{(order.refundAmount ?? 0) > 0 && <MoneyLine label="Refunded" amount={-(order.refundAmount ?? 0)} />}</div>
-    <div className="order-detail-grid"><div className="detail-item"><span>Payment method</span><strong>{order.paymentMethod ?? "Not recorded"}</strong></div><div className="detail-item"><span>Payment state</span><StatusPill status={order.paymentStatus ?? "Pending"} /></div><div className="detail-item"><span>Fulfilment</span><StatusPill status={order.status} /></div><div className="detail-item"><span>Courier & tracking</span><strong>{order.courier ? `${order.courier} · ${order.trackingNumber ?? "No tracking number"}` : "Not dispatched"}</strong></div><div className="detail-item order-address"><span><MapPin size={12} /> Delivery address</span><strong>{order.shippingAddress ?? "Not recorded"}</strong></div>{order.refundReason && <div className="detail-item"><span>Last refund reason</span><strong>{order.refundReason}</strong></div>}{order.cancellationReason && <div className="detail-item"><span>Cancellation reason</span><strong>{order.cancellationReason}</strong></div>}{order.returnReason && <div className="detail-item"><span>Return reason</span><strong>{order.returnReason}</strong></div>}</div>
+    <div className="order-detail-grid"><div className="detail-item"><span>Payment method</span><strong>{order.paymentMethod ?? "Not recorded"}</strong></div><div className="detail-item"><span>Payment state</span><StatusPill status={order.paymentStatus ?? "Pending"} /></div>{order.paymentReference && <div className="detail-item"><span>Razorpay payment reference</span><strong>{order.paymentReference}</strong></div>}{order.gatewayAttemptStatus === "failed_attempt" && <div className="detail-item"><span>Latest payment attempt</span><strong>Failed{order.gatewayFailureCode ? ` · ${order.gatewayFailureCode}` : ""}{order.paymentStatus === "Pending" ? "; customer may retry payment" : "; saved order payment state is unchanged"}</strong></div>}{order.refundStatus && <div className="detail-item"><span>Razorpay refund</span><strong>{order.refundStatus === "pending" ? `Pending · ${formatCurrency(order.refundPendingAmount ?? 0)}` : order.refundStatus}</strong></div>}{order.refundReference && <div className="detail-item"><span>Latest refund reference</span><strong>{order.refundReference}</strong></div>}<div className="detail-item"><span>Fulfilment</span><StatusPill status={order.status} /></div><div className="detail-item"><span>Courier & tracking</span><strong>{order.courier ? `${order.courier} · ${order.trackingNumber ?? "No tracking number"}` : "Not dispatched"}</strong></div><div className="detail-item order-address"><span><MapPin size={12} /> Delivery address</span><strong>{order.shippingAddress ?? "Not recorded"}</strong></div>{order.refundReason && <div className="detail-item"><span>Last refund reason</span><strong>{order.refundReason}</strong></div>}{order.cancellationReason && <div className="detail-item"><span>Cancellation reason</span><strong>{order.cancellationReason}</strong></div>}{order.returnReason && <div className="detail-item"><span>Return reason</span><strong>{order.returnReason}</strong></div>}</div>
+    {!!order.refundHistory?.length && <div className="order-detail-block"><div className="field-heading"><Undo2 size={14} />Refund history</div>{order.refundHistory.map((refund) => <div className="order-line-item" key={refund.id}><div><strong>{refund.id}</strong><span>{refund.status}{refund.updatedAt ? ` · ${new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(refund.updatedAt))}` : ""}</span></div><strong>{formatCurrency(refund.amount)}</strong></div>)}</div>}
     <div className="order-detail-block"><div className="field-heading"><Activity size={14} />Order history</div><div className="order-timeline">{(order.timeline ?? []).map((event, index) => <div className="order-timeline-item" key={`${event.label}-${index}`}><span className={event.done ? "done" : ""}>{event.done ? <Check size={11} /> : <span />}</span><div><strong>{event.label}</strong><small>{event.date}</small></div></div>)}</div></div>
   </>;
 }
@@ -582,7 +659,7 @@ function LiveTrackingPanel({ tracking, loading, error, onRefresh }: { tracking: 
     : tracking?.updated_at;
 
   return <section className="order-detail-block" aria-label="Live shipment tracking">
-    <div className="field-heading"><Truck size={14} />Live Shiprocket tracking
+    <div className="field-heading"><Truck size={14} />Live shipment tracking
       <button className="button button-secondary" type="button" disabled={loading} onClick={onRefresh} style={{ marginLeft: "auto", minHeight: 32 }}>
         {loading ? "Refreshing…" : "Refresh"}
       </button>
@@ -593,12 +670,13 @@ function LiveTrackingPanel({ tracking, loading, error, onRefresh }: { tracking: 
       <div className="detail-item"><span>Courier · AWB</span><strong>{[tracking.courier, tracking.awb_code].filter(Boolean).join(" · ") || "Tracking details pending"}</strong></div>
       {tracking.estimated_delivery && <div className="detail-item"><span>Estimated delivery</span><strong>{tracking.estimated_delivery}</strong></div>}
       {formattedUpdate && <p className="form-help">Last courier update: {formattedUpdate}</p>}
+      {tracking.is_stale_provider_fallback && <p className="form-help">Showing the latest saved carrier event while live tracking is unavailable.</p>}
       {tracking.events.length > 0
         ? <div className="order-timeline">{tracking.events.map((event, index) => <div className="order-timeline-item" key={`${event.date}-${event.activity}-${index}`}>
             <span className={index === 0 ? "done" : ""}>{index === 0 ? <Check size={11} /> : <span />}</span>
             <div><strong>{event.activity || event.status || "Shipment update"}</strong><small>{[event.location, event.date].filter(Boolean).join(" · ")}</small></div>
           </div>)}</div>
-        : <p className="form-help">Shiprocket has not received a courier scan for this shipment yet.</p>}
+        : <p className="form-help">{tracking.tracking_mode === "external" ? "Use the external courier page to view tracking scans." : "No courier scan has been received yet."}</p>}
       {tracking.track_url && <a href={tracking.track_url} target="_blank" rel="noreferrer" className="form-help">Open carrier tracking</a>}
     </>}
     {!tracking && !loading && !error && <p className="form-help">Tracking refreshes automatically while this order is open.</p>}

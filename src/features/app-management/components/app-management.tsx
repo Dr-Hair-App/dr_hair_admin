@@ -1,12 +1,10 @@
 "use client";
 
 import { BellRing, Megaphone, RefreshCw, ShieldCheck, SlidersHorizontal, Video, type LucideIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { AdminPermissionId, FeatureRecord, Role } from "../../shared/types";
 import type { PanelFeatureAccess } from "../../shared/lib/permissions";
-import { initialCoupons } from "../../commerce/lib/demo-data";
 import type { CouponRecord } from "../../commerce/types";
-import { useSessionState } from "../../shared/lib/use-session-state";
 import { PageHeader } from "../../shared/components/ui";
 import { ContentManagement } from "../../content/components/content-management";
 import { FeatureControls } from "../../feature-controls/components/feature-controls";
@@ -46,7 +44,35 @@ export function AppManagement({
     return role === "super-admin";
   }), [canManageContent, canManageNotifications, role]);
   const [activeTab, setActiveTab] = useState<AppManagementTab>(availableTabs[0]?.id ?? "content");
-  const [coupons] = useSessionState<CouponRecord[]>("drhair-commerce-coupons", initialCoupons);
+  const [coupons, setCoupons] = useState<CouponRecord[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/admin/coupons", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) return;
+        const items = body?.data?.coupons || body?.data;
+        if (!Array.isArray(items)) return;
+        setCoupons(items.map((raw: Record<string, unknown>) => {
+          const rawStatus = String(raw.status || "active").toLowerCase();
+          const status = rawStatus === "expired" ? "Expired" : rawStatus === "scheduled" ? "Scheduled" : "Active";
+          return {
+            id: String(raw.id || raw._id || raw.code || ""),
+            code: String(raw.code || ""),
+            discountType: String(raw.discountType || raw.discount_type || "fixed").toLowerCase() === "percent" ? "percent" : "fixed",
+            discountValue: Number(raw.discountValue ?? raw.discount_value ?? 0),
+            appliesTo: String(raw.appliesTo || raw.applies_to || "All products"),
+            minimumOrder: Number(raw.minimumOrder ?? raw.minimum_spend ?? raw.min_order_amount ?? 0),
+            uses: Number(raw.uses ?? raw.used_count ?? 0),
+            maxUses: Number(raw.maxUses ?? raw.max_uses ?? 0),
+            expiresOn: String(raw.expiresOn || raw.expires_at || ""),
+            status,
+          } satisfies CouponRecord;
+        }));
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
   const resolvedTab = availableTabs.some((tab) => tab.id === activeTab) ? activeTab : availableTabs[0]?.id;
 
   const selectedMeta = tabMeta.find((tab) => tab.id === resolvedTab);

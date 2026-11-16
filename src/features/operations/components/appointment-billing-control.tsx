@@ -12,7 +12,7 @@ export function AppointmentBillingControl({
 }) {
   const [paymentRequired, setPaymentRequired] = useState(false);
   const [firstAppointmentFree, setFirstAppointmentFree] = useState(false);
-  const [fee, setFee] = useState<number>(500);
+  const [fee, setFee] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -28,7 +28,7 @@ export function AppointmentBillingControl({
         const data = json.data || {};
         setPaymentRequired(Boolean(data.payment_required));
         setFirstAppointmentFree(Boolean(data.first_appointment_free));
-        setFee(Number(data.consultation_fee ?? 500));
+        setFee(typeof data.consultation_fee === "number" && Number.isFinite(data.consultation_fee) ? data.consultation_fee : null);
       })
       .catch(() => { if (active) onToast("Could not load appointment billing settings."); })
       .finally(() => { if (active) setLoading(false); });
@@ -36,8 +36,8 @@ export function AppointmentBillingControl({
   }, [onToast]);
 
   const handleSave = async () => {
-    if (fee < 0) {
-      onToast("Consultation fee cannot be negative.");
+    if (fee == null || !Number.isFinite(fee) || fee < 0) {
+      onToast("Enter a valid consultation fee before saving appointment billing.");
       return;
     }
     setSaving(true);
@@ -89,11 +89,11 @@ export function AppointmentBillingControl({
                   : "bg-amber-50 text-amber-700 border border-amber-200"
               }`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${paymentRequired ? "bg-teal-500 animate-pulse" : "bg-amber-500"}`} />
-                {paymentRequired ? `Online Fee Active (₹${fee})` : "Online Payment OFF"}
+                {paymentRequired ? `Online Fee Active (${fee == null ? "fee not set" : `₹${fee}`})` : "Online Payment OFF"}
               </span>
             )}
           </div>
-          <p className="text-xs text-slate-500 mt-1">{loading ? "Loading billing policy…" : `${paymentRequired ? "Online payment mandatory via Razorpay" : "Pay at clinic / free booking"} · ${paymentRequired ? `₹${fee}` : "Amount field inactive"}${firstAppointmentFree ? " · First visit free" : ""}`}</p>
+          <p className="text-xs text-slate-500 mt-1">{loading ? "Loading billing policy…" : `${paymentRequired ? "Online payment mandatory via Razorpay" : "Pay at clinic / free booking"} · ${paymentRequired ? (fee == null ? "fee not set" : `₹${fee}`) : "Amount field inactive"}${firstAppointmentFree ? " · First visit free" : ""}`}</p>
         </div>
         <span className="text-xs font-semibold text-teal-700 hover:text-teal-800 transition-colors">Edit policy</span>
       </summary>
@@ -168,9 +168,9 @@ export function AppointmentBillingControl({
                 type="number"
                 min={0}
                 step={50}
-                value={fee}
+                value={fee ?? ""}
                 disabled={!paymentRequired}
-                onChange={(e) => setFee(Math.max(0, Number(e.target.value)))}
+                onChange={(e) => setFee(e.target.value === "" ? null : Math.max(0, Number(e.target.value)))}
                 className={`w-24 px-2.5 py-1 text-xs font-bold border rounded-lg text-right transition-all ${
                   paymentRequired
                     ? "border-teal-300 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 shadow-xs"
@@ -193,7 +193,7 @@ export function AppointmentBillingControl({
         <button
           type="button"
           onClick={handleSave}
-          disabled={saving || loading}
+          disabled={saving || loading || fee == null}
           className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-teal-700 disabled:opacity-50"
         >
           {saving ? <RefreshCw size={13} className="animate-spin" /> : <Save size={13} />}

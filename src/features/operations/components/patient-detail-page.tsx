@@ -6,7 +6,7 @@ import Image from "next/image";
 import { Activity, CalendarDays, ChevronDown, ClipboardList, Copy, Download, Eye, EyeOff, FileCheck2, FileText, History, LoaderCircle, LockKeyhole, Mail, Pencil, Phone, Pill, Plus, RotateCcw, Search, Share2, ShieldCheck, Trash2, UploadCloud, UserRound, X } from "lucide-react";
 import type { Role } from "../../shared/types";
 import { Modal } from "../../shared/components/ui";
-import { CareArtwork, ImageChoice, careProductOptions, dietOptions, routineOptions, type CareProductOption, type CareArt } from "./patient-care-options";
+import { CareArtwork, ImageChoice, dietOptions, routineOptions, type CareProductOption, type CareArt } from "./patient-care-options";
 import { FullSizeImageViewer, type ViewerImage } from "../../shared/components/full-size-image-viewer";
 
 type Patient = { id: number | string; patient_code?: string; name: string; email?: string; phone?: string; age?: number | null; gender?: string | null; city?: string | null; occupation?: string | null; profile_url?: string | null; platform?: string; created_at?: string; updated_at?: string };
@@ -138,36 +138,45 @@ export function PatientDetailPage({ patientId, role, onToast, onAudit }: { patie
   const [reviewNote, setReviewNote] = useState("");
   const [savingReview, setSavingReview] = useState(false);
   const [liveProducts, setLiveProducts] = useState<CareProductOption[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState("");
+  const [reloadCatalog, setReloadCatalog] = useState(0);
   const canWrite = role === "super-admin";
 
   useEffect(() => {
     const controller = new AbortController();
     fetch("/api/admin/products", { cache: "no-store", signal: controller.signal })
       .then(async (res) => {
-        if (!res.ok) return;
+        if (!res.ok) throw new Error("The product catalog could not be loaded.");
         const json = await res.json().catch(() => ({}));
         const items = json?.data?.items || json?.data || [];
-        if (Array.isArray(items) && items.length > 0) {
-          const mapped: CareProductOption[] = items.map((p: Record<string, unknown>) => {
-            const cat = String(p.category || p.type || "Topical").trim();
-            const name = String(p.name || p.title || "Product").trim();
+        if (!Array.isArray(items)) throw new Error("The product catalog response is invalid.");
+        const mapped: CareProductOption[] = items
+          .filter((p: unknown): p is Record<string, unknown> => Boolean(p) && typeof p === "object")
+          .filter((p: Record<string, unknown>) => p.status == null || String(p.status).toLowerCase() === "active")
+          .map((p: Record<string, unknown>) => {
+            const cat = String(p.category || p.type || "").trim();
+            const name = String(p.name || p.title || "").trim();
             const form = String(p.form || p.dosage_form || cat).trim();
             const nameLower = name.toLowerCase();
             const art: CareArt = nameLower.includes("shampoo") ? "shampoo" : nameLower.includes("supplement") || nameLower.includes("tablet") || nameLower.includes("capsule") ? "supplement" : nameLower.includes("roller") ? "roller" : nameLower.includes("conditioner") ? "conditioner" : "serum";
-            return {
-              id: String(p.id || p._id || p.sku || name),
-              name,
-              category: cat,
-              form,
-              art,
-            };
-          });
+            return { id: String(p.id || p._id || p.sku || ""), name, category: cat, form, art };
+          })
+          .filter((product: CareProductOption) => Boolean(product.id && product.name));
+        if (!controller.signal.aborted) {
           setLiveProducts(mapped);
+          setCatalogError("");
+          setCatalogLoading(false);
         }
       })
-      .catch(() => {});
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          setCatalogError(error instanceof Error ? error.message : "The product catalog could not be loaded.");
+          setCatalogLoading(false);
+        }
+      });
     return () => controller.abort();
-  }, []);
+  }, [reloadCatalog]);
 
   const loadPatient = useCallback(async (signal?: AbortSignal) => {
     setLoadState("loading");
@@ -482,7 +491,7 @@ export function PatientDetailPage({ patientId, role, onToast, onAudit }: { patie
   if (loadState === "error" || !details) return <div className="page-wrap w-full min-w-0"><div className="card border border-rose-200 bg-rose-50 p-5 text-sm text-rose-800" role="alert">{error}<button className="button button-secondary ml-3" onClick={() => void loadPatient()}>Retry</button></div></div>;
 
   const patient = details.patient;
-  const patientCode = patient.patient_code || `DHP${String(patient.id).padStart(4, "0")}`;
+  const patientCode = patient.patient_code || String(patient.id);
   const initials = patient.name.split(/\s+/).map((part) => part[0] || "").join("").slice(0, 2).toUpperCase();
   const viewedAssessment = details.assessments.find((assessment) => String(assessment.id) === viewedAssessmentId) ?? details.assessments[0];
   const medicationSafetyAssessment = details.assessments.find((assessment) => String(assessment.reference_no ?? "") === selectedAssessment);
@@ -491,7 +500,7 @@ export function PatientDetailPage({ patientId, role, onToast, onAudit }: { patie
   const savedRoutineSteps = details.treatments.flatMap((treatment) => treatment.routine_steps ?? []);
   const savedDietMeals = details.treatments.flatMap((treatment) => treatment.diet_meals ?? []);
   const recentActivity = [...details.activity].sort((a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime()).slice(0, 20);
-  const productOptions = liveProducts.length > 0 ? liveProducts : careProductOptions;
+  const productOptions = liveProducts;
   const filteredMedicineOptions = productOptions.filter((option) => [option.name, option.category, option.form].join(" ").toLowerCase().includes(medicineSearch.trim().toLowerCase()));
   const filteredRoutineOptions = routineOptions.filter((option) => [option.title, option.subtitle, option.category, option.time_of_day].join(" ").toLowerCase().includes(routineSearch.trim().toLowerCase()));
   const filteredDietOptions = dietOptions.filter((option) => [option.type, option.name, option.nutrients, option.benefit].join(" ").toLowerCase().includes(dietSearch.trim().toLowerCase()));
@@ -787,7 +796,10 @@ export function PatientDetailPage({ patientId, role, onToast, onAudit }: { patie
       </section>
       <CareSearch value={medicineSearch} onChange={setMedicineSearch} placeholder="Search medicines or care products…" />
       <p className="mb-2 mt-4 text-[10px] font-bold uppercase tracking-wide text-slate-400">Suggested catalog items · Search and select, then set clinician-approved dose</p>
-      {filteredMedicineOptions.length ? <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{filteredMedicineOptions.map((option) => <ImageChoice key={option.id} selected={medications.some((medicine) => medicine.catalog_id === option.id)} title={option.name} detail={`${option.category} · ${option.form}`} art={option.art} onClick={() => toggleMedicine(option)} />)}</div> : <p className="rounded-xl bg-slate-50 p-4 text-center text-xs text-slate-500">No matching catalog items.</p>}
+      {catalogLoading ? <p className="rounded-xl bg-slate-50 p-4 text-center text-xs text-slate-500">Loading the active product catalog…</p>
+        : catalogError ? <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-center text-xs text-amber-900" role="alert">{catalogError}<button type="button" className="ml-2 font-semibold underline" onClick={() => { setCatalogLoading(true); setReloadCatalog((value) => value + 1); }}>Retry</button></div>
+          : filteredMedicineOptions.length ? <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{filteredMedicineOptions.map((option) => <ImageChoice key={option.id} selected={medications.some((medicine) => medicine.catalog_id === option.id)} title={option.name} detail={`${option.category} · ${option.form}`} art={option.art} onClick={() => toggleMedicine(option)} />)}</div>
+            : <p className="rounded-xl bg-slate-50 p-4 text-center text-xs text-slate-500">{liveProducts.length ? "No matching catalog items." : "No active products are available in the Admin catalog yet. Add a custom medication only when clinically appropriate."}</p>}
       <button type="button" onClick={() => setMedications((current) => [...current, { name: "", category: "", form: "", dose: "", frequency: "", duration: "", instructions: "" }])} className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-teal-700 hover:text-teal-800" disabled={savingCare}><Plus size={14} />Add custom medication</button>
       {medications.length > 0 && <div className="mt-4 space-y-3">{medications.map((medicine, index) => <div key={`${medicine.catalog_id ?? "custom"}-${index}`} className="rounded-2xl border border-slate-200 bg-[#FAFBFD] p-3.5">
         <div className="mb-3 flex items-center justify-between gap-2"><p className="text-xs font-semibold text-[#1A365D]">{medicine.name || `Custom medication ${index + 1}`}</p><button type="button" className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600" aria-label={`Remove medication ${index + 1}`} onClick={() => setMedications((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={15} /></button></div>
