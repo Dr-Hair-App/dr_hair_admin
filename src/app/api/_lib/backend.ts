@@ -3,10 +3,9 @@ import { NextResponse } from "next/server";
 export const ADMIN_SESSION_COOKIE = "drhair_admin_session";
 
 export function backendUrl(path: string) {
-  const configuredOrigin = process.env.DRHAIR_BACKEND_URL?.trim();
-  if (!configuredOrigin) {
-    throw new Error("DRHAIR_BACKEND_URL is not configured for this deployment.");
-  }
+  const configuredOrigin =
+    process.env.DRHAIR_BACKEND_URL?.trim() ||
+    "https://dr-hair-backend-production.drhair-app.workers.dev";
   const origin = configuredOrigin.replace(/\/+$/, "");
   return `${origin}${path}`;
 }
