@@ -67,6 +67,18 @@ interface ScreenShortcut {
   icon: typeof LayoutDashboard;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function apiItems(value: unknown): Record<string, unknown>[] {
+  if (!isRecord(value)) return [];
+  const data = value.data;
+  const payload = isRecord(data) ? data : {};
+  const items = Array.isArray(payload.items) ? payload.items : Array.isArray(data) ? data : [];
+  return items.filter(isRecord);
+}
+
 const adminScreens: ScreenShortcut[] = [
   { key: "overview", title: "Overview", category: "Workspace", description: "Clinic dashboard, stats, and patient triage", icon: LayoutDashboard },
   { key: "patients", title: "Patients & Assessments", category: "Clinical", description: "Scalp diagnostics, consultation history, profiles", icon: Gauge },
@@ -210,10 +222,9 @@ export function HeaderSearch({
 
         // Process Patients
         if (usersRes.status === "fulfilled" && usersRes.value.ok) {
-          const json = (await usersRes.value.json().catch(() => ({}))) as Record<string, any>;
-          const items = Array.isArray(json?.data?.items) ? json.data.items : [];
+          const items = apiItems(await usersRes.value.json().catch(() => ({})));
           setPatients(
-            items.map((u: Record<string, unknown>) => ({
+            items.map((u) => ({
               id: String(u.id ?? ""),
               name: String(u.name || "Patient"),
               email: typeof u.email === "string" ? u.email : undefined,
@@ -229,14 +240,9 @@ export function HeaderSearch({
 
         // Process Products
         if (productsRes.status === "fulfilled" && productsRes.value.ok) {
-          const json = (await productsRes.value.json().catch(() => ({}))) as Record<string, any>;
-          const items = Array.isArray(json?.data?.items)
-            ? json.data.items
-            : Array.isArray(json?.data)
-            ? json.data
-            : [];
+          const items = apiItems(await productsRes.value.json().catch(() => ({})));
           setProducts(
-            items.map((p: Record<string, unknown>) => ({
+            items.map((p) => ({
               id: String(p.id ?? ""),
               name: String(p.name || p.title || "Product"),
               sku: typeof p.sku === "string" ? p.sku : undefined,
@@ -252,10 +258,9 @@ export function HeaderSearch({
 
         // Process Appointments
         if (appointmentsRes.status === "fulfilled" && appointmentsRes.value.ok) {
-          const json = (await appointmentsRes.value.json().catch(() => ({}))) as Record<string, any>;
-          const items = Array.isArray(json?.data?.items) ? json.data.items : [];
+          const items = apiItems(await appointmentsRes.value.json().catch(() => ({})));
           setBookings(
-            items.map((b: Record<string, unknown>) => ({
+            items.map((b) => ({
               id: String(b.id ?? ""),
               customer: String(b.customer || b.name || "Patient"),
               service: String(b.service || b.reason || "Clinic consultation"),

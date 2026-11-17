@@ -17,7 +17,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const upstream = await fetch(backendUrl("/api/v1/admin-auth/login"), {
+    const targetUrl = backendUrl("/api/v1/admin-auth/login");
+    const upstream = await fetch(targetUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ email, password }),

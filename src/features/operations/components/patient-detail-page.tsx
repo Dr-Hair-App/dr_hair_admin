@@ -148,8 +148,12 @@ export function PatientDetailPage({ patientId, role, onToast, onAudit }: { patie
     fetch("/api/admin/products", { cache: "no-store", signal: controller.signal })
       .then(async (res) => {
         if (!res.ok) throw new Error("The product catalog could not be loaded.");
-        const json = (await res.json().catch(() => ({}))) as Record<string, any>;
-        const items = json?.data?.items || json?.data || [];
+        const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+        const data = json.data;
+        const payload = data && typeof data === "object" && !Array.isArray(data)
+          ? data as Record<string, unknown>
+          : {};
+        const items = Array.isArray(payload.items) ? payload.items : Array.isArray(data) ? data : [];
         if (!Array.isArray(items)) throw new Error("The product catalog response is invalid.");
         const mapped: CareProductOption[] = items
           .filter((p: unknown): p is Record<string, unknown> => Boolean(p) && typeof p === "object")

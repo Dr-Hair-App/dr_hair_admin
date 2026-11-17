@@ -63,21 +63,35 @@ body {
 }
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
-button:focus-visible, a:focus-visible {
-  outline: 2px solid rgba(13, 148, 136, .35);
-  outline-offset: 2px;
+button:focus, button:focus-visible, a:focus, a:focus-visible {
+  outline: none !important;
+  outline-offset: 0 !important;
 }
 
-/* Global Reset: Remove unwanted inner border and focus outline across all input, select, and textarea fields */
-input, select, textarea {
+/* Global Reset: Remove unwanted inner border, ring, and focus outline across all input, select, and textarea fields */
+*, *::before, *::after {
   outline: none;
+}
+*:focus, *:focus-visible {
+  outline: none !important;
+  outline-offset: 0 !important;
+}
+
+input, select, textarea {
+  outline: none !important;
 }
 input:focus,
 input:focus-visible,
+input:focus-within,
+input:active,
 select:focus,
 select:focus-visible,
+select:focus-within,
+select:active,
 textarea:focus,
-textarea:focus-visible {
+textarea:focus-visible,
+textarea:focus-within,
+textarea:active {
   outline: none !important;
   outline-offset: 0 !important;
   -webkit-tap-highlight-color: transparent;

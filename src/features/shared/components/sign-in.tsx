@@ -37,15 +37,20 @@ export function SignIn({ onAuthenticated }: { onAuthenticated: (admin: AdminIden
         body: JSON.stringify({ email: loginId.trim(), password }),
         cache: "no-store",
       });
-      const result = (await response.json().catch(() => ({}))) as Record<string, any>;
-      const admin = result?.admin as AdminIdentity | undefined;
+      const rawResult: unknown = await response.json().catch(() => ({}));
+      const result = rawResult && typeof rawResult === "object" && !Array.isArray(rawResult)
+        ? rawResult as Record<string, unknown>
+        : {};
+      const admin = result.admin && typeof result.admin === "object" && !Array.isArray(result.admin)
+        ? result.admin as AdminIdentity
+        : undefined;
       if (
         !response.ok
-        || result?.authenticated !== true
+        || result.authenticated !== true
         || !admin?.email
         || !["admin", "super_admin"].includes(admin.role)
       ) {
-        throw new Error(result?.message || "Admin ID or password is incorrect.");
+        throw new Error(typeof result.message === "string" ? result.message : "Admin ID or password is incorrect.");
       }
       onAuthenticated(admin);
     } catch (signInError) {
