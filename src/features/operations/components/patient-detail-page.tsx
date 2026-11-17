@@ -15,7 +15,7 @@ type Medication = { catalog_id?: string; name: string; category?: string; form?:
 type RoutineStep = { title: string; subtitle?: string; category?: string; time_of_day?: string };
 type DietMeal = { type: string; name: string; nutrients?: string; benefit?: string };
 type Treatment = { id: string | number; reference_no?: string; treatment_name: string; duration?: string; instructions?: string; doctor_name?: string; diagnosis?: string; stage?: string; next_review_date?: string; medications?: Medication[]; routine_steps?: RoutineStep[]; diet_meals?: DietMeal[]; date?: string };
-type Report = { id: string; title: string; file_name: string; mime_type: string; format: string; bytes: number; uploaded_by?: string; visibility?: "Private" | "Shared"; shared_at?: string | null; deleted_at?: string | null; purge_after?: string | null; visibility_history?: { action?: "uploaded" | "shared" | "hidden" | "archived" | "restored"; visibility: "Private" | "Shared"; changed_by?: string; changed_at?: string | null; patient_consent_confirmed?: boolean }[]; created_at: string };
+type Report = { id: string; title: string; file_name: string; mime_type: string; format: string; bytes: number; stored_bytes?: number; compressed?: boolean; uploaded_by?: string; visibility?: "Private" | "Shared"; shared_at?: string | null; deleted_at?: string | null; purge_after?: string | null; visibility_history?: { action?: "uploaded" | "shared" | "hidden" | "archived" | "restored"; visibility: "Private" | "Shared"; changed_by?: string; changed_at?: string | null; patient_consent_confirmed?: boolean }[]; created_at: string };
 type PatientActivity = { id: string; type: string; title: string; summary?: string; actor?: string; occurred_at: string };
 type PatientAppointment = { id: string; starts_at: string; reason?: string; status: string; opd_token?: string };
 type ProgressCheckIn = { id: string; date: string; scalp_region?: string; shedding_level?: string; notes?: string; density_rating?: number; is_doctor_reviewed?: boolean; doctor_note?: string; photos?: { angle?: string; url?: string; file_name?: string; mime_type?: string; bytes?: number }[] };
@@ -120,6 +120,7 @@ export function PatientDetailPage({ patientId, role, onToast, onAudit }: { patie
   const [reportOpen, setReportOpen] = useState(false);
   const [reportTitle, setReportTitle] = useState("");
   const [reportFile, setReportFile] = useState<File | null>(null);
+  const [compressReportLosslessly, setCompressReportLosslessly] = useState(true);
   const [uploadingReport, setUploadingReport] = useState(false);
   const [downloadingReport, setDownloadingReport] = useState<string | null>(null);
   const [updatingReportVisibility, setUpdatingReportVisibility] = useState<string | null>(null);
@@ -342,17 +343,20 @@ export function PatientDetailPage({ patientId, role, onToast, onAudit }: { patie
     }
     setUploadingReport(true);
     try {
-      const body = new FormData(); body.set("title", reportTitle.trim()); body.set("file", reportFile);
+      const body = new FormData(); body.set("title", reportTitle.trim()); body.set("file", reportFile); body.set("compress_losslessly", String(compressReportLosslessly));
       const response = await fetch(`/api/admin/users/${encodeURIComponent(patientId)}/reports`, { method: "POST", body, cache: "no-store" });
       const result: unknown = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(messageFrom(result, "Report upload failed."));
       const data = isRecord(result) && isRecord(result.data) ? result.data as unknown as Report : null;
       if (data) setDetails((current) => current ? { ...current, reports: [data, ...current.reports] } : current);
-      setReportTitle(""); setReportFile(null);
+      setReportTitle(""); setReportFile(null); setCompressReportLosslessly(true);
       setReportOpen(false);
       const input = document.getElementById("patient-report-file") as HTMLInputElement | null; if (input) input.value = "";
       onAudit("uploaded private patient report", `Patient ${patientId}`);
-      onToast("Report uploaded privately. Share it with the patient when it is ready.");
+      const saved = data?.compressed && data.bytes > 0 && data.stored_bytes && data.stored_bytes < data.bytes
+        ? ` Lossless storage saved ${Math.round((1 - data.stored_bytes / data.bytes) * 100)}%.`
+        : "";
+      onToast(`Report uploaded privately.${saved} Share it with the patient when it is ready.`);
     } catch (cause) {
       onToast(cause instanceof Error ? cause.message : "Report upload failed.");
     } finally { setUploadingReport(false); }
@@ -858,7 +862,8 @@ export function PatientDetailPage({ patientId, role, onToast, onAudit }: { patie
 
     {reportOpen && <Modal title="Upload patient report" description="Keep the file private and linked to this patient record." submitLabel={uploadingReport ? "Uploading…" : "Upload private report"} submitDisabled={uploadingReport || !reportFile || !reportTitle.trim()} onClose={() => setReportOpen(false)} onSubmit={() => { void uploadReport(); }}>
       <label className="block text-xs font-semibold text-slate-600">Report name<input autoFocus maxLength={160} value={reportTitle} onChange={(event) => setReportTitle(event.target.value)} placeholder="e.g. Blood test results" className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal" disabled={uploadingReport} /></label>
-      <label className="mt-4 flex cursor-pointer items-center gap-3 rounded-2xl border border-dashed border-slate-300 bg-[#FAFBFD] p-4 transition hover:border-teal-400"><input id="patient-report-file" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" className="sr-only" disabled={uploadingReport} onChange={(event) => setReportFile(event.target.files?.[0] ?? null)} /><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white text-teal-700 shadow-sm"><UploadCloud size={19} /></span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold text-slate-700">{reportFile?.name || "Choose a report file"}</span><span className="mt-1 block text-[10px] text-slate-400">PDF, JPG, PNG or WebP · up to 10 MB</span></span>{reportFile && <button type="button" className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-white hover:text-slate-700" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setReportFile(null); const input = document.getElementById("patient-report-file") as HTMLInputElement | null; if (input) input.value = ""; }} aria-label="Remove selected file"><X size={15} /></button>}</label>
+      <label className="mt-4 flex cursor-pointer items-center gap-3 rounded-2xl border border-dashed border-slate-300 bg-[#FAFBFD] p-4 transition hover:border-teal-400"><input id="patient-report-file" type="file" accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/jpeg,image/png,image/webp" className="sr-only" disabled={uploadingReport} onChange={(event) => setReportFile(event.target.files?.[0] ?? null)} /><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white text-teal-700 shadow-sm"><UploadCloud size={19} /></span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold text-slate-700">{reportFile?.name || "Choose a report file"}</span><span className="mt-1 block text-[10px] text-slate-400">PDF, DOC, DOCX, JPG, PNG or WebP · up to 10 MB</span></span>{reportFile && <button type="button" className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-white hover:text-slate-700" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setReportFile(null); const input = document.getElementById("patient-report-file") as HTMLInputElement | null; if (input) input.value = ""; }} aria-label="Remove selected file"><X size={15} /></button>}</label>
+      <label className="product-compression-option mt-3"><input type="checkbox" checked={compressReportLosslessly} disabled={uploadingReport} onChange={(event) => setCompressReportLosslessly(event.target.checked)} /><span><strong>Save with lossless compression when smaller</strong><small>Reports remain byte-for-byte recoverable. If compression grows the file, the original is stored.</small></span></label>
     </Modal>}
 
     {reviewingCheckIn && (

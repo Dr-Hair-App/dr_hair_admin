@@ -35,6 +35,7 @@ export function HairTestsPage({
   const [testName, setTestName] = useState("Scalp analysis");
   const [testDate, setTestDate] = useState(new Date().toISOString().slice(0, 10));
   const [file, setFile] = useState<File | null>(null);
+  const [compressReportLosslessly, setCompressReportLosslessly] = useState(true);
   const [uploading, setUploading] = useState(false);
 
   const [reportToConfirmVisibility, setReportToConfirmVisibility] = useState<{
@@ -142,6 +143,7 @@ export function HairTestsPage({
       const formData = new FormData();
       formData.append("file", file);
       formData.append("title", testName.trim());
+      formData.append("compress_losslessly", String(compressReportLosslessly));
 
       const res = await fetch(`/api/admin/users/${encodeURIComponent(patient.id)}/reports`, {
         method: "POST",
@@ -167,9 +169,14 @@ export function HairTestsPage({
         };
         setRecords((current) => [newRecord, ...current]);
         setFile(null);
+        setCompressReportLosslessly(true);
         event.currentTarget.reset();
         onAudit("uploaded private patient report", `${patient.id} · ${newRecord.testName}`);
-        onToast("Clinical report uploaded privately. Share with patient when ready.");
+        const storedBytes = Number(r.stored_bytes);
+        const saved = r.compressed === true && storedBytes > 0 && storedBytes < file.size
+          ? ` Lossless storage saved ${Math.round((1 - storedBytes / file.size) * 100)}%.`
+          : "";
+        onToast(`Clinical report uploaded privately.${saved} Share with patient when ready.`);
       } else {
         const err = await res.json().catch(() => ({}));
         onToast(err.message || "Failed to upload report.");
@@ -265,7 +272,7 @@ export function HairTestsPage({
           <div className="section-row">
             <div>
               <h2 className="card-title">Add a patient test result</h2>
-              <p className="card-note">Images, PDF, DOC, and DOCX · up to 15 MB</p>
+              <p className="card-note">Images, PDF, DOC, and DOCX · up to 10 MB</p>
             </div>
             <FileUp size={18} color="#167f79" />
           </div>
@@ -293,8 +300,8 @@ export function HairTestsPage({
                 accept="image/*,.pdf,.doc,.docx"
                 onChange={(event) => {
                   const next = event.target.files?.[0] ?? null;
-                  if (next && next.size > 15 * 1024 * 1024) {
-                    onToast("Choose a file smaller than 15 MB.");
+                  if (next && next.size > 10 * 1024 * 1024) {
+                    onToast("Choose a file smaller than 10 MB.");
                     event.target.value = "";
                     return;
                   }
@@ -305,6 +312,7 @@ export function HairTestsPage({
               <small>{file ? `${file.name} · ${(file.size / 1024 / 1024).toFixed(1)} MB` : "File will be encrypted and saved to clinical storage."}</small>
             </label>
           </div>
+          <label className="product-compression-option mt-3"><input type="checkbox" checked={compressReportLosslessly} disabled={uploading} onChange={(event) => setCompressReportLosslessly(event.target.checked)} /><span><strong>Save with lossless compression when smaller</strong><small>Original file bytes are restored on download; larger compressed results are discarded.</small></span></label>
           <div className="hair-test-form-actions">
             <button className="button button-primary" type="submit" disabled={uploading}>
               {uploading ? <Loader2 size={14} className="animate-spin" /> : <FileUp size={14} />}

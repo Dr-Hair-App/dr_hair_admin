@@ -898,6 +898,42 @@ tbody tr:hover { background: #fbfcfd; }
   border-color: #ccfbf1;
   box-shadow: 0 1px 3px rgba(15, 118, 110, 0.06);
 }
+.product-editor-section {
+  animation: product-section-enter 180ms cubic-bezier(.2,.8,.2,1) both;
+}
+@keyframes product-section-enter {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.product-compression-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 13px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  cursor: pointer;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+.product-compression-option:hover {
+  border-color: #99d7cd;
+  background: #f3faf8;
+}
+.product-compression-option input {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  margin: 2px 0 0;
+  accent-color: #16877e;
+}
+.product-compression-option span { display: grid; gap: 3px; }
+.product-compression-option strong { color: #334155; font-size: 11px; font-weight: 650; }
+.product-compression-option small { color: #7b8798; font-size: 10px; line-height: 1.45; }
+@media (prefers-reduced-motion: reduce) {
+  .product-editor-section { animation: none; }
+  .product-compression-option { transition: none; }
+}
 .product-editor-tab .tab-badge {
   display: inline-flex;
   align-items: center;

@@ -15,6 +15,7 @@ export async function POST(request: Request) {
   try {
     const incomingFormData = await request.formData();
     const purpose = request.headers.get("x-media-purpose") || "product";
+    const compression = request.headers.get("x-media-compression");
 
     const outgoingFormData = new FormData();
     for (const [key, value] of incomingFormData.entries()) {
@@ -35,6 +36,7 @@ export async function POST(request: Request) {
         Authorization: `Bearer ${token}`,
         Accept: "application/json",
         "X-Media-Purpose": purpose,
+        ...(compression ? { "X-Media-Compression": compression } : {}),
       },
       body: outgoingFormData,
       cache: "no-store",
@@ -44,5 +46,38 @@ export async function POST(request: Request) {
     return noStoreJson(body, upstream.status);
   } catch (err) {
     return noStoreJson({ message: err instanceof Error ? err.message : "The media service is temporarily unavailable." }, 503);
+  }
+}
+
+export async function DELETE(request: Request) {
+  const authHeader = request.headers.get("authorization") || "";
+  const headerToken = authHeader.replace(/^Bearer\s+/i, "").trim();
+  const token = (await cookies()).get(ADMIN_SESSION_COOKIE)?.value || headerToken;
+  if (!token) return noStoreJson({ message: "Sign in to remove media." }, 401);
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return noStoreJson({ message: "Send the uploaded media ID as JSON." }, 400);
+  }
+  if (!body || typeof body !== "object" || typeof (body as { public_id?: unknown }).public_id !== "string") {
+    return noStoreJson({ message: "A stored media ID is required." }, 400);
+  }
+
+  try {
+    const upstream = await fetchBackend("/api/v1/media", {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ public_id: (body as { public_id: string }).public_id, resource_type: "image" }),
+      cache: "no-store",
+    });
+    return noStoreJson(await readJson(upstream), upstream.status);
+  } catch {
+    return noStoreJson({ message: "The media service is temporarily unavailable." }, 503);
   }
 }

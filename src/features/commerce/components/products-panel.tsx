@@ -12,7 +12,6 @@ import {
   Boxes,
   Check,
   ImagePlus,
-  Layers,
   Loader2,
   Package,
   PackagePlus,
@@ -762,7 +761,7 @@ export function ProductsPanel({
       {deleteProduct && (
         <Modal
           title="Delete product permanently?"
-          description="This will permanently delete this medicine from the MongoDB database and remove it from mobile apps."
+          description="This will permanently delete this medicine from the catalog and remove any unreferenced product images from R2."
           submitLabel={isDeleting ? "Deleting..." : "Delete from database"}
           submitDisabled={isDeleting}
           submitVariant="danger"
@@ -805,7 +804,7 @@ function ProductEditor({
   onSave: (form: ProductFormState, existing: ProductRecord | null) => Promise<boolean>;
   onToast: (message: string) => void;
 }) {
-  type EditorTab = "general" | "pricing" | "media" | "clinical" | "all";
+  type EditorTab = "general" | "pricing" | "media" | "clinical";
   type UploadStatus = "uploading" | "ready" | "error";
   interface MediaItemMeta {
     status: UploadStatus;
@@ -818,7 +817,7 @@ function ProductEditor({
   const [previews, setPreviews] = useState<PreviewMedia[]>([]);
   const [imageToView, setImageToView] = useState<ViewerImage | null>(null);
   const [uploadMeta, setUploadMeta] = useState<Record<string, MediaItemMeta>>({});
-  const [urlInput, setUrlInput] = useState("");
+  const [losslessCompression, setLosslessCompression] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [showAdvancedPlans, setShowAdvancedPlans] = useState(false);
@@ -827,6 +826,7 @@ function ProductEditor({
   const [rootCauseDraft, setRootCauseDraft] = useState("");
 
   const activeUrls = useRef<string[]>([]);
+  const pendingUploadKeys = useRef(new Set<string>());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const setField = <K extends keyof ProductFormState>(key: K, value: ProductFormState[K]) =>
@@ -872,7 +872,7 @@ function ProductEditor({
   };
 
   // Upload single file with progress tracking
-  const uploadSingleMediaFile = async (file: File, tempId: string, kind: "image" | "video") => {
+  const uploadSingleMediaFile = async (file: File, tempId: string, kind: "image") => {
     setUploadMeta((prev) => ({
       ...prev,
       [tempId]: { status: "uploading", file },
@@ -885,23 +885,30 @@ function ProductEditor({
       const res = await fetch("/api/admin/media/upload", {
         method: "POST",
         body: formData,
-        headers: { "X-Media-Purpose": "product" },
+        headers: {
+          "X-Media-Purpose": "product",
+          ...(losslessCompression ? { "X-Media-Compression": "lossless" } : {}),
+        },
       });
 
       const body = await res.json().catch(() => ({}));
       const cloudUrl = (body?.data?.url || body?.data?.secure_url || body?.data?.items?.[0]?.url) as
         | string
         | undefined;
+      const publicId = (body?.data?.public_id || body?.data?.asset_id || body?.data?.items?.[0]?.public_id) as
+        | string
+        | undefined;
 
-      if (!res.ok || !cloudUrl) {
+      if (!res.ok || !cloudUrl || !publicId) {
         throw new Error(body?.message || `Failed to upload ${file.name}.`);
       }
+      pendingUploadKeys.current.add(publicId);
 
       // Update form media with permanent Cloudflare R2 URL
       setForm((prev) => ({
         ...prev,
         media: prev.media.map((m) =>
-          m.name === tempId ? { ...m, name: cloudUrl, url: cloudUrl } : m
+          m.name === tempId ? { ...m, name: cloudUrl, url: cloudUrl, publicId } : m
         ),
       }));
 
@@ -919,7 +926,14 @@ function ProductEditor({
         return next;
       });
 
-      onToast(`Uploaded ${file.name} to Cloudflare R2.`);
+      const item = body?.data;
+      const savedBytes = Number(item?.bytes ?? item?.items?.[0]?.bytes);
+      const originalBytes = Number(item?.original_bytes ?? item?.items?.[0]?.original_bytes);
+      const compressed = item?.compressed === true || item?.items?.[0]?.compressed === true;
+      const savings = compressed && originalBytes > savedBytes
+        ? ` · ${(100 - (savedBytes / originalBytes) * 100).toFixed(0)}% smaller`
+        : "";
+      onToast(`Uploaded ${file.name} to Cloudflare R2${savings}.`);
       return cloudUrl;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : `Failed to upload ${file.name}`;
@@ -936,7 +950,7 @@ function ProductEditor({
   const processFiles = async (files: File[]) => {
     if (files.length === 0) return;
 
-    const validFiles: { file: File; kind: "image" | "video"; tempId: string; localUrl: string }[] = [];
+    const validFiles: { file: File; kind: "image"; tempId: string; localUrl: string }[] = [];
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
@@ -947,15 +961,16 @@ function ProductEditor({
         continue;
       }
 
-      const isVideo = file.type.startsWith("video/");
-      const isImage = file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif|avif|heic)$/i.test(file.name);
+      const isSupportedImageMime = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"].includes(file.type.toLowerCase());
+      const hasSupportedImageExtension = /\.(jpe?g|png|webp|gif|avif)$/i.test(file.name);
+      const isImage = isSupportedImageMime || (!file.type && hasSupportedImageExtension);
 
-      if (!isImage && !isVideo) {
-        onToast(`"${file.name}" is not a supported image or video format.`);
+      if (!isImage) {
+        onToast(`"${file.name}" is not supported. Choose a JPEG, PNG, WebP, GIF, or AVIF image.`);
         continue;
       }
 
-      const kind = isVideo ? ("video" as const) : ("image" as const);
+      const kind = "image" as const;
       const tempId = `temp-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`;
       const localUrl = URL.createObjectURL(file);
       activeUrls.current.push(localUrl);
@@ -1029,38 +1044,34 @@ function ProductEditor({
       onToast("Original file is no longer in memory. Please select it again.");
       return;
     }
-    const mediaItem = form.media.find((m) => m.name === tempId);
-    const kind = mediaItem?.kind || "image";
-    await uploadSingleMediaFile(meta.file, tempId, kind);
+    await uploadSingleMediaFile(meta.file, tempId, "image");
   };
 
-  const addDirectUrl = () => {
-    const trimmed = urlInput.trim();
-    if (!trimmed) return;
-    if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
-      onToast("Enter a valid image URL starting with https://");
+  const deleteUncommittedMedia = async (publicId: string) => {
+    if (!pendingUploadKeys.current.has(publicId)) return;
+    try {
+      const response = await fetch("/api/admin/media/upload", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ public_id: publicId }),
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result?.message || "Could not remove the unused upload from R2.");
+      }
+      pendingUploadKeys.current.delete(publicId);
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "Could not remove the unused upload from R2.");
+    }
+  };
+
+  const handleClose = () => {
+    if (isUploading || isSaving) {
+      onToast("Wait for the current upload or save to finish before closing.");
       return;
     }
-    setForm((prev) => {
-      const isFirstImage = !prev.media.some((m) => m.kind === "image");
-      return {
-        ...prev,
-        media: [
-          ...prev.media,
-          {
-            name: trimmed,
-            url: trimmed,
-            kind: "image",
-            isPrimary: isFirstImage,
-            altText: "Product photo",
-          },
-        ],
-      };
-    });
-    setPreviews((current) => [...current, { name: trimmed, url: trimmed, kind: "image" }]);
-    setUploadMeta((prev) => ({ ...prev, [trimmed]: { status: "ready" } }));
-    setUrlInput("");
-    onToast("Image URL added to gallery.");
+    void Promise.all([...pendingUploadKeys.current].map(deleteUncommittedMedia));
+    onClose();
   };
 
   const updatePlan = (index: number, field: keyof ProductSupplyPlan, value: string) =>
@@ -1110,6 +1121,7 @@ function ProductEditor({
       if (removed.url) delete next[removed.url];
       return next;
     });
+    if (removed.publicId) void deleteUncommittedMedia(removed.publicId);
   };
 
   const handleSubmit = async () => {
@@ -1145,6 +1157,7 @@ function ProductEditor({
     try {
       const success = await onSave(form, product);
       if (success) {
+        pendingUploadKeys.current.clear();
         onClose();
       }
     } catch (err) {
@@ -1155,10 +1168,6 @@ function ProductEditor({
   };
 
   // Calculations for Margin / Profit summary
-  const profitPerUnit = form.price - form.unitCost;
-  const marginPercent = form.price > 0 && form.unitCost > 0
-    ? Math.max(0, Math.round((profitPerUnit / form.price) * 100))
-    : null;
   const discountPercent = form.mrp > form.price
     ? Math.round(((form.mrp - form.price) / form.mrp) * 100)
     : null;
@@ -1208,7 +1217,7 @@ function ProductEditor({
           )
         }
         submitDisabled={isUploading || isSaving}
-        onClose={onClose}
+        onClose={handleClose}
         onSubmit={() => void handleSubmit()}
       >
         {/* Navigation Tabs */}
@@ -1258,17 +1267,6 @@ function ProductEditor({
             <BadgeCheck size={13} />
             <span>04 · Clinical & Usage</span>
           </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "all"}
-            className={`product-editor-tab ${activeTab === "all" ? "active" : ""}`}
-            onClick={() => setActiveTab("all")}
-            title="View all sections together"
-          >
-            <Layers size={13} />
-            <span>All Sections</span>
-          </button>
         </div>
 
         {formError && (
@@ -1289,7 +1287,7 @@ function ProductEditor({
         )}
 
         {/* SECTION 1: STORE LISTING */}
-        {(activeTab === "general" || activeTab === "all") && (
+        {activeTab === "general" && (
           <div className="product-editor-section animate-in fade-in duration-200">
             <div className="product-editor-section-head">
               <div>
@@ -1397,7 +1395,7 @@ function ProductEditor({
         )}
 
         {/* SECTION 2: PRICING & INVENTORY */}
-        {(activeTab === "pricing" || activeTab === "all") && (
+        {activeTab === "pricing" && (
           <div className="product-editor-section animate-in fade-in duration-200">
             <div className="product-editor-section-head">
               <div>
@@ -1417,11 +1415,6 @@ function ProductEditor({
                 {discountPercent !== null && discountPercent > 0 && (
                   <span className="inline-flex items-center text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
                     {discountPercent}% OFF MRP
-                  </span>
-                )}
-                {marginPercent !== null && (
-                  <span className="inline-flex items-center text-[10px] font-semibold text-teal-800 bg-teal-50 border border-teal-200 rounded-full px-2 py-0.5">
-                    Margin: {marginPercent}% (₹{profitPerUnit} profit/unit)
                   </span>
                 )}
                 <span className="text-[10px] text-slate-400 ml-auto">
@@ -1485,17 +1478,6 @@ function ProductEditor({
                     <span>Auto</span>
                   </button>
                 </div>
-              </div>
-              <div className="field">
-                <label htmlFor="product-unit-cost">Unit cost (₹) (internal margin)</label>
-                <input
-                  id="product-unit-cost"
-                  type="number"
-                  min="0"
-                  value={form.unitCost || ""}
-                  onChange={(e) => updatePrimaryPricing("unitCost", e.target.value)}
-                  placeholder="150"
-                />
               </div>
             </div>
 
@@ -1661,12 +1643,12 @@ function ProductEditor({
         )}
 
         {/* SECTION 3: MEDIA (CLOUDINARY) */}
-        {(activeTab === "media" || activeTab === "all") && (
+        {activeTab === "media" && (
           <div className="product-editor-section animate-in fade-in duration-200">
             <div className="product-editor-section-head">
               <div>
                 <h3>Product photos & media (Cloudflare R2)</h3>
-                <p>Drag & drop product images, browse from device, or paste direct URLs. Star marks the primary cover.</p>
+                <p>Upload JPEG, PNG, WebP, GIF, or AVIF images to R2. Star marks the primary cover.</p>
               </div>
               <span className="product-section-number">03</span>
             </div>
@@ -1701,7 +1683,7 @@ function ProductEditor({
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="image/*,video/*"
+                  accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
                   multiple
                   onChange={pickMedia}
                   className="hidden"
@@ -1724,38 +1706,19 @@ function ProductEditor({
                   Browse files
                 </button>
               </div>
-
-              {/* Direct URL input */}
-              <div className="flex flex-col justify-between p-3.5 rounded-xl border border-slate-200 bg-slate-50/70">
-                <div className="mb-2">
-                  <strong className="text-xs font-semibold text-slate-800 block">Add via Image / Cloudflare R2 URL</strong>
-                  <small className="text-[11px] text-slate-500">Paste any public image link or Cloudflare R2 secure URL</small>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="url"
-                    value={urlInput}
-                    onChange={(e) => setUrlInput(e.target.value)}
-                    placeholder="https://res.R2.com/.../medicine.jpg"
-                    className="flex-1 text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        addDirectUrl();
-                      }
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="button button-secondary button-small shrink-0"
-                    onClick={addDirectUrl}
-                    disabled={!urlInput.trim()}
-                  >
-                    Add URL
-                  </button>
-                </div>
-              </div>
             </div>
+
+            <label className="product-compression-option">
+              <input
+                type="checkbox"
+                checked={losslessCompression}
+                onChange={(event) => setLosslessCompression(event.target.checked)}
+              />
+              <span>
+                <strong>Save with lossless compression when smaller</strong>
+                <small>Image quality stays unchanged. R2 keeps the original bytes if compression would increase storage.</small>
+              </span>
+            </label>
 
             {/* Media Manager Gallery List */}
             <div className="product-media-manager">
@@ -1906,6 +1869,7 @@ function ProductEditor({
                         className="row-action danger-action"
                         aria-label={`Remove ${media.name}`}
                         onClick={() => removeMedia(index)}
+                        disabled={status === "uploading"}
                         title="Remove"
                       >
                         <Trash2 size={14} />
@@ -1947,7 +1911,7 @@ function ProductEditor({
         )}
 
         {/* SECTION 4: CLINICAL DETAILS */}
-        {(activeTab === "clinical" || activeTab === "all") && (
+        {activeTab === "clinical" && (
           <div className="product-editor-section animate-in fade-in duration-200">
             <div className="product-editor-section-head">
               <div>

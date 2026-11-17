@@ -46,6 +46,7 @@ export interface ProductClinicalClaim {
 export interface ProductMedia {
   name: string;
   url?: string;
+  publicId?: string;
   kind: "image" | "video";
   altText?: string;
   isPrimary?: boolean;
