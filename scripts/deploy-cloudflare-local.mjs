@@ -32,6 +32,7 @@ const backendServiceName = workerName.includes('staging')
 const workerConfig = {
   $schema: './node_modules/wrangler/config-schema.json',
   name: workerName,
+  workers_dev: true,
   main: './.cloudflare/wrangler-upload/v0/workers/default/bundle/index.js',
   compatibility_date: '2026-11-16',
   compatibility_flags: ['nodejs_compat', 'nodejs_compat_populate_process_env'],
@@ -45,6 +46,9 @@ const workerConfig = {
   services: [
     { binding: 'BACKEND_SERVICE', service: backendServiceName },
   ],
+  routes: workerName === 'dr-hair-admin' ? [
+    { pattern: 'admin.drhairindia.com', custom_domain: true },
+  ] : undefined,
   vars: {
     DRHAIR_BACKEND_URL: backendUrl,
     ADMIN_PUBLIC_URL: adminUrl,
