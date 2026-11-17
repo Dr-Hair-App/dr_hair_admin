@@ -1,18 +1,29 @@
 "use client";
 
+// The project deliberately disables framework image optimization for direct R2/FCM image URLs.
+/* eslint-disable @next/next/no-img-element */
+
 import { BellRing, CalendarClock, ImageIcon, Link2, Send, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { StatusPill } from "../../shared/components/ui";
 
 type NotificationStatus = "Sent" | "Queued" | "Scheduled" | "Cancelled";
-type Audience = "All app users" | "Active patients" | "Patients with a shared report";
+type Audience = "All app users" | "Active patients" | "Patients with a shared report" | "Accounts & assessments" | "Product customers" | "Appointment & treatment patients";
+const audienceOptions: { value: Audience; label: string; note: string }[] = [
+  { value: "Accounts & assessments", label: "Accounts & assessments", note: "All registered patients; assessment status is tracked separately" },
+  { value: "Product customers", label: "Active product customers", note: "Paid purchase + app login in the last 30 days; product use itself is not tracked" },
+  { value: "Appointment & treatment patients", label: "Appointments & treatment", note: "Patients with a non-cancelled appointment and a treatment record" },
+  { value: "Active patients", label: "Active patients", note: "Patients with assessment, appointment, or progress activity" },
+  { value: "Patients with a shared report", label: "Shared clinical reports", note: "Patients with a report shared to their app" },
+  { value: "All app users", label: "All app users", note: "Every registered or guest device token" },
+];
 type DeepLinkTarget = "clinic_appointment" | "product" | "hair_test" | "videos" | "orders" | "profile";
 
 interface NotificationRecord {
   id: string;
   title: string;
   message: string;
-  audience: Audience;
+  audience: string;
   status: NotificationStatus;
   createdAt: string;
   scheduledAt?: string;
@@ -29,31 +40,28 @@ export function NotificationsPanel({ onToast, onAudit }: { onToast: (message: st
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [imageUrl, setImageUrl] = useState("");
-  const [audience, setAudience] = useState<Audience>("All app users");
+  const [audiences, setAudiences] = useState<Audience[]>(["Accounts & assessments"]);
   const [deepLink, setDeepLink] = useState<DeepLinkTarget>("clinic_appointment");
   const [productId, setProductId] = useState("prod-anti-dandruff-shampoo");
   const [scheduleMode, setScheduleMode] = useState<"now" | "later">("now");
   const [scheduledAt, setScheduledAt] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [liveAudienceCounts, setLiveAudienceCounts] = useState<Record<Audience, number>>({
-    "All app users": 0,
-    "Active patients": 0,
-    "Patients with a shared report": 0,
-  });
+  const [liveAudienceCount, setLiveAudienceCount] = useState(0);
+  const audienceKey = audiences.join("|");
+  const toggleAudience = (value: Audience) => {
+    setAudiences((current) => current.includes(value)
+      ? (current.length > 1 ? current.filter((item) => item !== value) : current)
+      : [...current, value]);
+  };
 
   useEffect(() => {
-    fetch(`/api/admin/notifications?action=audience-count&audience=${encodeURIComponent(audience)}`)
+    fetch(`/api/admin/notifications?action=audience-count&audience=${encodeURIComponent(audienceKey)}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (data?.data?.targetCount != null) {
-          setLiveAudienceCounts((prev) => ({
-            ...prev,
-            [audience]: data.data.targetCount,
-          }));
-        }
+        setLiveAudienceCount(Number(data?.data?.targetCount) || 0);
       })
-      .catch(() => {});
-  }, [audience]);
+      .catch(() => setLiveAudienceCount(0));
+  }, [audienceKey]);
 
   useEffect(() => {
     fetch("/api/admin/notifications?page=1&limit=20")
@@ -72,7 +80,7 @@ export function NotificationsPanel({ onToast, onAudit }: { onToast: (message: st
               id: String(item.id || (typeof item._id === "string" ? `NTF-${item._id.slice(-5)}` : "001")),
               title: String(item.title || ""),
               message: String(item.body || ""),
-              audience: (item.audience as Audience) || "All app users",
+              audience: String(item.audience || "All app users").split("|").join(", "),
               status,
               createdAt: new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" }).format(new Date((typeof item.created_at === "string" || typeof item.created_at === "number") ? item.created_at : Date.now())),
               scheduledAt: item.scheduledAt ? new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(item.scheduledAt as string)) : undefined,
@@ -87,7 +95,7 @@ export function NotificationsPanel({ onToast, onAudit }: { onToast: (message: st
   }, []);
 
   const submit = async () => {
-    if (liveAudienceCounts[audience] <= 0) {
+    if (liveAudienceCount <= 0) {
       onToast("No eligible patients were found for this audience. Refresh the audience before sending.");
       return;
     }
@@ -115,7 +123,7 @@ export function NotificationsPanel({ onToast, onAudit }: { onToast: (message: st
     const payload = {
       title: cleanTitle,
       body: cleanMessage,
-      audience,
+      audiences,
       imageUrl: cleanImageUrl || null,
       destination: destinationPayload,
       scheduled_at: scheduleMode === "later" ? new Date(scheduledAt).toISOString() : null,
@@ -147,7 +155,7 @@ export function NotificationsPanel({ onToast, onAudit }: { onToast: (message: st
         id: campaign?.id || json?.data?.notification?.id || `NTF-${Date.now().toString().slice(-5)}`,
         title: cleanTitle,
         message: cleanMessage,
-        audience,
+        audience: audiences.join(", "),
         status: isScheduled ? "Scheduled" : "Sent",
         createdAt: "Just now",
         scheduledAt: isScheduled && scheduledAt ? new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(scheduledAt)) : undefined,
@@ -249,15 +257,26 @@ export function NotificationsPanel({ onToast, onAudit }: { onToast: (message: st
             )}
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <label className="field">
-                <span>Audience</span>
-                <select value={audience} onChange={(event) => setAudience(event.target.value as Audience)}>
-                  <option>All app users</option>
-                  <option>Active patients</option>
-                  <option>Patients with a shared report</option>
-                </select>
-                <small>Targets: {liveAudienceCounts[audience].toLocaleString("en-IN")} patients</small>
-              </label>
+              <fieldset className="field min-w-0">
+                <legend>Patient groups</legend>
+                <div className="grid gap-1.5">
+                  {audienceOptions.map((option) => (
+                    <label key={option.value} className="flex cursor-pointer items-start gap-2 rounded-xl border border-slate-200 px-3 py-2 transition-colors hover:bg-slate-50 has-[:checked]:border-teal-600/40 has-[:checked]:bg-teal-50/50">
+                      <input
+                        type="checkbox"
+                        checked={audiences.includes(option.value)}
+                        onChange={() => toggleAudience(option.value)}
+                        className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-teal-700"
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-xs font-semibold text-slate-800">{option.label}</span>
+                        <span className="mt-0.5 block text-[10px] leading-snug text-slate-500">{option.note}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <small aria-live="polite">{liveAudienceCount.toLocaleString("en-IN")} eligible device{liveAudienceCount === 1 ? "" : "s"} · groups are combined without duplicate devices</small>
+              </fieldset>
 
               <label className="field">
                 <span className="flex items-center gap-1"><Link2 size={12} /> App Deep Link Destination</span>

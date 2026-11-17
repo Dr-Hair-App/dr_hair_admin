@@ -35,7 +35,7 @@ export function Avatar({ initials }: { initials: string }) {
 export function PageHeader({
   eyebrow, title, description, action,
 }: { eyebrow?: string; title: string; description: string; action?: React.ReactNode }) {
-  return <div className="page-head mx-auto flex min-w-0 flex-col items-stretch gap-3 sm:flex-row sm:items-end sm:justify-between"><div className="min-w-0">{eyebrow && <p className="eyebrow">{eyebrow}</p>}<h1 className="page-title break-words">{title}</h1><p className="page-subtitle max-w-prose">{description}</p></div>{action && <div className="head-actions flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end [&>.button]:w-full sm:[&>.button]:w-auto">{action}</div>}</div>;
+  return <div className="page-head mx-auto flex min-w-0 flex-col items-stretch gap-3 sm:flex-row sm:items-end sm:justify-between"><div className="min-w-0">{eyebrow && <p className="eyebrow">{eyebrow}</p>}<h1 className="page-title break-words">{title}</h1><p className="page-subtitle max-w-prose">{description}</p></div>{action && <div className="head-actions">{action}</div>}</div>;
 }
 
 export function TableToolbar({

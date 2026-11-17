@@ -5,7 +5,8 @@ import {
   Activity, ArrowRight, BadgeIndianRupee, Boxes, Check, CreditCard, Download,
   Filter, MapPin, PackageCheck, ShieldAlert, Truck, Undo2, UserRound,
 } from "lucide-react";
-import { Avatar, Modal, PageHeader, StatusPill, TableToolbar } from "../../shared/components/ui";
+import { Avatar, Modal, StatusPill, TableToolbar } from "../../shared/components/ui";
+import { SlidingTabList } from "../../shared/components/sliding-tab-list";
 import { formatCurrency } from "../../commerce/lib/format";
 import type { OrderFulfillmentStatus, OrderPaymentStatus, OrderRecord } from "../../shared/types";
 import { ReceivedPaymentsPanel } from "./received-payments-panel";
@@ -561,34 +562,33 @@ export function OrdersPage({ globalSearch, onToast, onAudit = () => {}, canExpor
   };
 
   return <div className="page-wrap w-full min-w-0">
-    <PageHeader eyebrow="Commerce · Fulfilment & Payments" title="Orders & Payments" description="Work through paid orders, shipping updates, customer refunds, and live Razorpay transactions." action={canExport && topTab === "orders" ? <button className="button button-secondary" onClick={exportCsv}><Download size={14} />Export filtered CSV</button> : undefined} />
-
-    <div className="flex items-center gap-2 mb-4 border-b border-slate-200">
+    <div className="order-tab-toolbar">
+      <SlidingTabList activeKey={topTab} indicatorVariant="underline" className="order-main-tabs" label="Order workspaces">
       <button
         type="button"
-        className={`pb-2.5 px-3 text-sm font-semibold border-b-2 transition-colors ${
-          topTab === "orders"
-            ? "border-teal-700 text-teal-800"
-            : "border-transparent text-slate-500 hover:text-slate-800"
-        }`}
+        role="tab"
+        aria-selected={topTab === "orders"}
+        aria-controls="orders-fulfilment-panel"
+        className="order-main-tab"
         onClick={() => setTopTab("orders")}
       >
-        Orders & Fulfilment
+        <PackageCheck size={15} /><span>Orders &amp; Fulfilment</span>
       </button>
       <button
         type="button"
-        className={`pb-2.5 px-3 text-sm font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
-          topTab === "payments"
-            ? "border-teal-700 text-teal-800"
-            : "border-transparent text-slate-500 hover:text-slate-800"
-        }`}
+        role="tab"
+        aria-selected={topTab === "payments"}
+        aria-controls="orders-payments-panel"
+        className="order-main-tab"
         onClick={() => setTopTab("payments")}
       >
-        <CreditCard size={14} />
-        Received Payments (Razorpay)
+        <CreditCard size={15} /><span>Received Payments (Razorpay)</span>
       </button>
+      </SlidingTabList>
+      {canExport && topTab === "orders" && <button className="button button-secondary order-export-button" onClick={exportCsv}><Download size={14} />Export filtered CSV</button>}
     </div>
 
+    <div key={topTab} id={topTab === "orders" ? "orders-fulfilment-panel" : "orders-payments-panel"} role="tabpanel" aria-label={topTab === "orders" ? "Orders and fulfilment" : "Received payments"} className="tab-panel-transition">
     {topTab === "payments" ? (
       <ReceivedPaymentsPanel onToast={onToast} />
     ) : (
@@ -604,13 +604,13 @@ export function OrdersPage({ globalSearch, onToast, onAudit = () => {}, canExpor
         <section className="card order-workspace-card">
           <div className="order-workspace-heading"><div><h2 className="card-title">Fulfilment queue</h2><p className="card-note">Select a queue to focus the work that needs doing next.</p></div><span className="small-caption">{normalizedOrders.length} orders</span></div>
           <div className="order-queue-tabs" role="tablist" aria-label="Filter orders by fulfilment status">{queueTabs.map((queue) => <button key={queue} role="tab" aria-selected={tab === queue} className={tab === queue ? "selected" : ""} onClick={() => setTab(queue)}>{queue}<span>{counts[queue]}</span></button>)}</div>
-          <TableToolbar value={query} onChange={setQuery} placeholder="Search order, customer, product, coupon, or tracking..." right={<>
+          <TableToolbar value={query} onChange={setQuery} placeholder="Search order, customer, product, coupon, or tracking..." right={<div className="order-filter-controls">
             <select className="period-select" aria-label="Filter by payment" value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)}><option>Any payment</option><option>Paid</option><option>Pending</option><option>Failed</option><option>Partially refunded</option><option>Refunded</option></select>
             <select className="period-select" aria-label="Filter orders by date" value={dateFilter} onChange={(event) => changeDateFilter(event.target.value as OrderDateFilter)}><option>All dates</option><option>Last 7 days</option><option>Last 30 days</option></select>
             <select className="period-select order-product-filter" aria-label="Filter by product" value={productFilter} onChange={(event) => setProductFilter(event.target.value)}><option>All products</option>{productOptions.map((product) => <option key={product}>{product}</option>)}</select>
             <select className="period-select" aria-label="Filter by coupon" value={couponFilter} onChange={(event) => setCouponFilter(event.target.value)}><option>All coupons</option>{couponOptions.map((coupon) => <option key={coupon}>{coupon}</option>)}</select>
             <button className="filter-button" onClick={clearFilters}><Filter size={13} />Reset</button>
-          </>} />
+          </div>} />
 
           {eligibleSelected.length > 0 && <div className="order-bulk-toolbar"><span><Check size={14} />{eligibleSelected.length} selected paid order{eligibleSelected.length === 1 ? "" : "s"} can start fulfilment</span><button className="button button-secondary button-small" onClick={moveSelectedToPreparing}>Move to preparing <ArrowRight size={13} /></button></div>}
 
@@ -650,6 +650,7 @@ export function OrdersPage({ globalSearch, onToast, onAudit = () => {}, canExpor
         {refundOrder && <Modal title="Request Razorpay refund" description={`${refundOrder.id} · ${refundOrder.customer}`} submitLabel="Submit refund request" onClose={() => setRefundOrder(null)} onSubmit={confirmRefund}><div className="order-refund-context"><BadgeIndianRupee size={16} /><span>Remaining refundable amount<strong>{formatCurrency(Math.max(0, parseAmount(refundOrder) - (refundOrder.refundAmount ?? 0) - (refundOrder.refundPendingAmount ?? 0)))}</strong></span></div><div className="form-grid-two"><div className="field"><label htmlFor="refund-amount">Refund amount (₹)</label><input id="refund-amount" type="number" min="1" step="1" max={Math.max(0, parseAmount(refundOrder) - (refundOrder.refundAmount ?? 0) - (refundOrder.refundPendingAmount ?? 0))} value={refundAmount} onChange={(event) => setRefundAmount(event.target.value)} /></div><div className="field"><label htmlFor="refund-reason">Reason</label><select id="refund-reason" value={refundReason} onChange={(event) => setRefundReason(event.target.value)}>{["Customer return", "Damaged item", "Wrong item sent", "Partial order issue", "Customer goodwill", "Other"].map((reason) => <option key={reason}>{reason}</option>)}</select></div></div><label className="order-action-notice"><input type="checkbox" checked={restockReturnedItems} disabled={Number(refundAmount) + (refundOrder.refundAmount ?? 0) < parseAmount(refundOrder)} onChange={(event) => setRestockReturnedItems(event.target.checked)} /><span>Restock all returned items after Razorpay confirms a full refund. Partial refunds cannot restock the whole order.</span></label><div className="order-action-notice"><ShieldAlert size={14} /><span>The refund is sent to Razorpay. The order will show pending until Razorpay confirms processing.</span></div></Modal>}
       </>
     )}
+    </div>
   </div>;
 }
 

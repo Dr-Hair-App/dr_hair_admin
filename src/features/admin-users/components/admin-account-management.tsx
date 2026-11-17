@@ -352,7 +352,7 @@ export function AdminAccountManagement() {
   }
 
   return (
-    <div className="page-wrap w-full min-w-0">
+    <div className="page-wrap workspace-page admin-accounts-page w-full min-w-0">
       <PageHeader
         eyebrow="Management · Super Admin"
         title="Admin accounts"
@@ -368,7 +368,7 @@ export function AdminAccountManagement() {
 
       {/* CREATE ADMIN SECTION */}
       <section className="card mb-5 overflow-hidden rounded-[24px]">
-        <div className="section-row border-b border-slate-100 px-4 py-4 sm:px-5">
+        <div className="admin-account-form-head section-row border-b border-slate-100 px-4 py-4 sm:px-5">
           <div>
             <h2 className="card-title">Create an admin account</h2>
             <p className="card-note">
@@ -409,19 +409,21 @@ export function AdminAccountManagement() {
 
             {/* Password Configuration */}
             <div className="sm:col-span-2 rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
-              <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
-                <span className="text-xs font-semibold text-slate-800">Admin Login Password</span>
-                <div className="segmented-control inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
+              <div className="mb-2.5 flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
+                {passwordMode === "custom"
+                  ? <label htmlFor="admin-account-password" className="text-xs font-semibold text-slate-800">Admin login password</label>
+                  : <span className="text-xs font-semibold text-slate-800">Admin login password</span>}
+                <div className="segmented-control inline-flex w-full rounded-lg border border-slate-200 bg-white p-0.5 sm:w-auto">
                   <button
                     type="button"
-                    className={passwordMode === "custom" ? "active" : ""}
+                    className={`min-w-0 flex-1 sm:flex-none ${passwordMode === "custom" ? "active" : ""}`}
                     onClick={() => setPasswordMode("custom")}
                   >
                     Set custom password
                   </button>
                   <button
                     type="button"
-                    className={passwordMode === "auto" ? "active" : ""}
+                    className={`min-w-0 flex-1 sm:flex-none ${passwordMode === "auto" ? "active" : ""}`}
                     onClick={() => {
                       setPasswordMode("auto");
                       setPassword("");
@@ -434,37 +436,36 @@ export function AdminAccountManagement() {
 
               {passwordMode === "custom" ? (
                 <div className="mt-2">
-                  <div className="relative flex items-center">
-                    <input
-                      id="admin-account-password"
-                      type={showPassword ? "text" : "password"}
-                      autoComplete="new-password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Enter login password (min. 8 characters)"
-                      className="w-full pr-24"
-                      required={passwordMode === "custom"}
-                      minLength={8}
-                    />
-                    <div className="absolute right-2 flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        className="text-xs text-slate-500 hover:text-slate-800 px-1 py-1"
-                        onClick={() => setPassword(generateRandomPassword())}
-                        title="Generate strong random password"
-                      >
-                        <RefreshCw size={13} className="inline mr-1" />
-                        Random
-                      </button>
-                      <button
-                        type="button"
-                        className="text-slate-500 hover:text-slate-800 p-1"
-                        onClick={() => setShowPassword(!showPassword)}
-                        aria-label={showPassword ? "Hide password" : "Show password"}
-                      >
-                        {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-                      </button>
-                    </div>
+                  <input
+                    id="admin-account-password"
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="new-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter login password (min. 8 characters)"
+                    className="w-full"
+                    required={passwordMode === "custom"}
+                    minLength={8}
+                  />
+                  <div className="mt-1 flex justify-end gap-1.5">
+                    <button
+                      type="button"
+                      className="px-1 py-1 text-xs text-slate-500 hover:text-slate-800"
+                      onClick={() => setPassword(generateRandomPassword())}
+                      title="Generate strong random password"
+                      aria-label="Generate a strong password"
+                    >
+                      <RefreshCw size={13} className="mr-1 inline" />
+                      Random
+                    </button>
+                    <button
+                      type="button"
+                      className="p-1 text-slate-500 hover:text-slate-800"
+                      onClick={() => setShowPassword(!showPassword)}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                    >
+                      {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
                   </div>
                   <p className="mt-1.5 text-[11px] text-slate-500">
                     Staff member will use this password to sign into the Dr. Hair clinic panel.
@@ -555,7 +556,7 @@ export function AdminAccountManagement() {
                                   type="checkbox"
                                   checked={isAllowed}
                                   onChange={() => togglePermissionOverride(perm.id)}
-                                  className="mt-0.5 rounded text-teal-600 focus:ring-teal-500"
+                                  className="mt-0.5 rounded text-teal-600"
                                 />
                                 <span className={isAllowed ? "font-medium text-slate-900" : "text-slate-500"}>
                                   {perm.label}
@@ -785,7 +786,7 @@ export function AdminAccountManagement() {
         </div>
 
         {/* Mobile View */}
-        <div className="grid gap-3 p-3 pt-0 sm:hidden">
+        <div className="admin-account-mobile-list grid gap-3 p-3 pt-0 sm:hidden">
           {accounts.map((account) => {
             const isSuper = account.role === "super_admin";
             const template = account.roleTemplate && roleTemplates[account.roleTemplate];
@@ -794,7 +795,7 @@ export function AdminAccountManagement() {
               : getPermissionSummary(account.effectivePermissions || []);
 
             return (
-              <article key={account.id} className="min-w-0 rounded-2xl border border-slate-200 bg-[#FBFCFE] p-3.5">
+              <article key={account.id} className="admin-account-mobile-card min-w-0 rounded-2xl border border-slate-200 bg-[#FBFCFE] p-3.5">
                 <div className="flex min-w-0 items-start justify-between gap-3">
                   <div>
                     <strong className="min-w-0 break-words text-sm font-semibold text-[#1A365D]">
@@ -825,10 +826,10 @@ export function AdminAccountManagement() {
                 </div>
 
                 {!isSuper && (
-                  <div className="mt-3.5 flex flex-wrap gap-1.5 border-t border-slate-100 pt-2.5">
+                  <div className="admin-account-mobile-actions mt-3.5 grid grid-cols-2 gap-1.5 border-t border-slate-100 pt-2.5">
                     <button
                       type="button"
-                      className="button button-secondary button-small flex-1"
+                      className="button button-secondary button-small"
                       onClick={() => openEditAccess(account)}
                     >
                       <Settings2 size={13} />
@@ -836,7 +837,7 @@ export function AdminAccountManagement() {
                     </button>
                     <button
                       type="button"
-                      className="button button-secondary button-small flex-1"
+                      className="button button-secondary button-small"
                       onClick={() => openPasswordModal(account)}
                     >
                       <KeyRound size={13} />
@@ -844,7 +845,7 @@ export function AdminAccountManagement() {
                     </button>
                     <button
                       type="button"
-                      className={`button button-small flex-1 ${
+                      className={`button button-small ${
                         account.active ? "button-secondary text-amber-700" : "button-teal"
                       }`}
                       onClick={() => void toggleAdminStatus(account)}
@@ -855,14 +856,18 @@ export function AdminAccountManagement() {
                       type="button"
                       className="button button-danger button-small"
                       onClick={() => setDeletingAccount(account)}
+                      aria-label={`Remove ${account.name} admin account`}
                     >
                       <Trash2 size={13} />
+                      Remove
                     </button>
                   </div>
                 )}
               </article>
             );
           })}
+          {!loading && accounts.length === 0 && <div className="admin-account-mobile-state empty-state rounded-xl border border-dashed border-slate-200 bg-slate-50/70">No admin accounts are configured yet.</div>}
+          {loading && <div className="admin-account-mobile-state empty-state rounded-xl border border-slate-200 bg-white" role="status">Loading admin accounts…</div>}
         </div>
       </section>
 
@@ -929,7 +934,7 @@ export function AdminAccountManagement() {
                                 type="checkbox"
                                 checked={isAllowed}
                                 onChange={() => toggleEditPermissionOverride(perm.id)}
-                                className="mt-0.5 rounded text-teal-600 focus:ring-teal-500"
+                                  className="mt-0.5 rounded text-teal-600"
                               />
                               <span className={isAllowed ? "font-medium text-slate-900" : "text-slate-500"}>
                                 {perm.label}

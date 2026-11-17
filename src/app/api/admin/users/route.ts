@@ -18,7 +18,7 @@ export async function GET(request: Request) {
 
   const incomingUrl = new URL(request.url);
   const query = new URLSearchParams();
-  for (const key of ["page", "limit", "search"]) {
+  for (const key of ["page", "limit", "search", "segment"]) {
     const value = incomingUrl.searchParams.get(key);
     if (value) query.set(key, value);
   }

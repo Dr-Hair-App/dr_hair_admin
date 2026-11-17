@@ -1,11 +1,9 @@
 "use client";
 
 import {
-  Activity,
   ArrowRight,
   Calendar,
   ChevronRight,
-  Command,
   Flag,
   Gauge,
   LayoutDashboard,
@@ -15,6 +13,7 @@ import {
   Search,
   ShieldCheck,
   ShoppingBag,
+  UsersRound,
   X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -88,7 +87,7 @@ const adminScreens: ScreenShortcut[] = [
   { key: "bookings", title: "Appointments & Consultations", category: "Scheduling", description: "Doctor schedules, clinic visits, OPD queues", icon: Calendar },
   { key: "content", title: "App Management & CMS", category: "Content", description: "Banners, clinic stories, home promotions, feeds", icon: PanelsTopLeft },
   { key: "team", title: "Admin Team & Access", category: "Security", description: "Staff accounts, role permissions, audit security", icon: ShieldCheck },
-  { key: "activity", title: "Audit Log & Security", category: "Security", description: "Administrative access logs, system changes", icon: Activity },
+  { key: "activity", title: "Patient Accounts", category: "Security", description: "Review patient login access and account status", icon: UsersRound },
 ];
 
 const screenPlaceholders: Record<PageKey, string> = {
@@ -100,7 +99,7 @@ const screenPlaceholders: Record<PageKey, string> = {
   bookings: "Search doctor appointments, patient, token... (⌘K)",
   content: "Search banners, articles, app stories... (⌘K)",
   team: "Search admin accounts, staff names, roles... (⌘K)",
-  activity: "Search audit logs, actions, admin emails... (⌘K)",
+  activity: "Search patient accounts by name, phone, email, or code... (⌘K)",
   notifications: "Search clinic alerts, notifications... (⌘K)",
 };
 

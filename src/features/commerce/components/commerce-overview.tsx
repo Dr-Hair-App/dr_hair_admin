@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, BadgePercent, CircleDollarSign, Package, ShoppingBag, Sparkles, TrendingDown } from "lucide-react";
+import { ArrowRight, BadgePercent, CircleDollarSign, Package, RefreshCw, ShoppingBag, Sparkles, TrendingDown } from "lucide-react";
 import { useEffect, useState } from "react";
 import { formatCompactCurrency } from "../lib/format";
 import type { CommercePeriod, CouponRecord, ProductRecord } from "../types";
@@ -17,6 +17,7 @@ export function CommerceOverview({ products, coupons, onNavigate }: {
   const [report, setReport] = useState<SalesReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<{ period: CommercePeriod; message: string } | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     const abort = new AbortController();
@@ -25,7 +26,7 @@ export function CommerceOverview({ products, coupons, onNavigate }: {
         const body = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(body?.message || "Sales reporting is unavailable.");
         const value = body?.data;
-        if (!value || !Array.isArray(value.buckets) || !value.totals) throw new Error("Sales report response was incomplete.");
+        if (!value || !Array.isArray(value.buckets) || !value.totals) throw new Error("Sales data is temporarily unavailable.");
         setReport(value as SalesReport);
         setError(null);
       })
@@ -34,7 +35,7 @@ export function CommerceOverview({ products, coupons, onNavigate }: {
       })
       .finally(() => { if (!abort.signal.aborted) setLoading(false); });
     return () => abort.abort();
-  }, [period]);
+  }, [period, retryCount]);
 
   const topProducts = [...products].sort((a, b) => b.revenue - a.revenue).slice(0, 4);
   const activeCoupons = coupons.filter((coupon) => coupon.status === "Active").length;
@@ -59,7 +60,7 @@ export function CommerceOverview({ products, coupons, onNavigate }: {
     <div className="commerce-overview-grid">
       <section className="card commerce-chart-card" aria-busy={isLoading}>
         <div className="section-row"><div><h2 className="card-title">Sales trend</h2><p className="card-note">Net paid sales · {period === "week" ? "this week" : period === "month" ? "this month" : "this year"}</p></div></div>
-        {visibleError ? <div className="empty-state" role="alert">{visibleError}</div> : isLoading ? <div className="empty-state">Loading sales report…</div> : report && <>
+        {visibleError ? <div className="empty-state flex min-h-36 flex-col items-center justify-center gap-2" role="alert"><span>{visibleError}</span><button type="button" className="text-action" onClick={() => { setLoading(true); setError(null); setRetryCount((count) => count + 1); }}>Try again <RefreshCw size={13} /></button></div> : isLoading ? <div className="empty-state">Loading sales report…</div> : report && <>
           <div className="sales-chart" role="img" aria-label={`Net sales chart for this ${period}`}>
             <div className="sales-axis"><span>{formatCompactCurrency(maxSales)}</span><span>{formatCompactCurrency(maxSales * .66)}</span><span>{formatCompactCurrency(maxSales * .33)}</span><span>₹0</span></div>
             <div className="sales-plot">{report.buckets.map((bucket, index) => <div className="sales-bar-wrap" key={bucket.key} title={`${bucket.key}: ${formatCompactCurrency(bucket.net_sales)} · ${bucket.order_count} paid orders`}><div className={`sales-bar ${index === report.buckets.length - 1 ? "highlight" : ""}`} style={{ height: `${Math.max(4, (bucket.net_sales / maxSales) * 100)}%` }} /><span>{bucket.label}</span></div>)}</div>

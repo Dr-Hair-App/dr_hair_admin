@@ -17,7 +17,7 @@ export const navigationItems: NavigationItem[] = [
   { key: "tests", label: "Hair tests & reports", group: "Workspace", icon: "FileCheck2" },
   { key: "bookings", label: "Clinic appointments", group: "Workspace", icon: "CalendarDays" },
   { key: "team", label: "Admin users", group: "Management", icon: "ShieldCheck", superAdminOnly: true },
-  { key: "activity", label: "Audit log", group: "Management", icon: "History", superAdminOnly: true },
+  { key: "activity", label: "Patient accounts", group: "Management", icon: "UsersRound", superAdminOnly: true },
 ];
 
 export type PanelFeatureAccess = Record<string, boolean>;

@@ -6,6 +6,7 @@ import type { AdminPermissionId, FeatureRecord, Role } from "../../shared/types"
 import type { PanelFeatureAccess } from "../../shared/lib/permissions";
 import type { CouponRecord } from "../../commerce/types";
 import { PageHeader } from "../../shared/components/ui";
+import { SlidingTabList } from "../../shared/components/sliding-tab-list";
 import { ContentManagement } from "../../content/components/content-management";
 import { FeatureControls } from "../../feature-controls/components/feature-controls";
 import { AppUpdatesPanel } from "./app-updates-panel";
@@ -76,13 +77,13 @@ export function AppManagement({
   const resolvedTab = availableTabs.some((tab) => tab.id === activeTab) ? activeTab : availableTabs[0]?.id;
 
   const selectedMeta = tabMeta.find((tab) => tab.id === resolvedTab);
-  return <div className="page-wrap w-full min-w-0">
+  return <div className="page-wrap workspace-page app-management-page w-full min-w-0">
     <PageHeader eyebrow="Dr. Hair · App experience" title="App Management" description="Manage what patients see, receive, and need to access the Dr. Hair app." />
-    <div className="commerce-tabs app-management-tabs" role="tablist" aria-label="App management sections">
+    <SlidingTabList activeKey={resolvedTab ?? ""} className="commerce-tabs app-management-tabs" label="App management sections">
       {availableTabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={resolvedTab === id} className={`commerce-tab ${resolvedTab === id ? "selected" : ""}`} onClick={() => setActiveTab(id)}><Icon size={15} />{label}</button>)}
-    </div>
-    {selectedMeta && <p className="mb-4 mt-3 text-[11px] leading-5 text-slate-500">{selectedMeta.description}</p>}
-    <section aria-label={selectedMeta?.label ?? "App management"}>
+    </SlidingTabList>
+    {selectedMeta && <div className="app-section-context" aria-live="polite"><span className="app-section-context-mark" /><p>{selectedMeta.description}</p></div>}
+    <section key={resolvedTab} className="tab-panel-transition" aria-label={selectedMeta?.label ?? "App management"}>
       {resolvedTab === "content" && <ContentManagement mode="content" scope="content" embedded onToast={onToast} permissions={permissions} onAudit={onAudit} />}
       {resolvedTab === "home" && <ContentManagement mode="content" scope="home" embedded availableOffers={coupons} onToast={onToast} permissions={permissions} onAudit={onAudit} />}
       {resolvedTab === "notifications" && <NotificationsPanel onToast={onToast} onAudit={onAudit} />}

@@ -2,7 +2,7 @@ import { bindings, defineConfig, defineWorker } from "cf/config";
 
 export default defineConfig({
   worker: defineWorker({
-    name: process.env.CF_WORKER_NAME ?? "dr-hair-admin",
+    name: "dr-hair-admin",
     entrypoint: "vinext/server/fetch-handler",
     compatibilityDate: "2026-11-16",
     assets: {

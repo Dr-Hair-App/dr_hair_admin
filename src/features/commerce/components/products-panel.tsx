@@ -517,6 +517,32 @@ export function ProductsPanel({
       </div>
 
       <section className="card commerce-list-card">
+        <div className="product-mobile-list" aria-label="Products">
+          {visibleProducts.map((product) => {
+            const lead = featuredPlan(getPlans(product));
+            const displayPrice = lead.price || product.price || 0;
+            const stock = stockLabel(product);
+            return <article className="product-mobile-card" key={product.id}>
+              <button type="button" className="product-mobile-main" onClick={() => setDetailProduct(product)}>
+                <span className="product-table-icon"><Package size={15} /></span>
+                <span className="product-mobile-copy"><strong>{product.name}</strong><small>{product.category} · {product.sku || lead.sku}</small></span>
+                <span className="product-mobile-price">{formatCurrency(displayPrice)}</span>
+              </button>
+              <div className="product-mobile-meta">
+                <span className={stock.low ? "stock-low" : ""}>{stock.label}</span>
+                <StatusPill status={product.status} />
+                <span>{product.unitsSold.toLocaleString("en-IN")} sold</span>
+              </div>
+              <div className="product-mobile-actions">
+                <button type="button" className="button button-secondary button-small" onClick={() => setDetailProduct(product)}>Details</button>
+                <button type="button" className="button button-secondary button-small" onClick={() => setStockProduct(product)}><PackagePlus size={13} />Stock</button>
+                <button type="button" className="button button-secondary button-small" onClick={() => setEditorProduct(product)}><Pencil size={13} />Edit</button>
+                {product.status !== "Archived" && <button type="button" className="button button-secondary button-small" onClick={() => setArchiveProduct(product)}><Archive size={13} />Archive</button>}
+              </div>
+            </article>;
+          })}
+          {visibleProducts.length === 0 && <div className="empty-state">No products match this search.</div>}
+        </div>
         <div className="table-wrap">
           <table className="commerce-table products-table">
             <thead>

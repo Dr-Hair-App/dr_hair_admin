@@ -44,7 +44,7 @@ Feature screens stay grouped by domain. Shared UI and role/access rules live in 
 
 ## Cloudflare deployment
 
-GitHub Actions runs lint and a production build on pull requests and `main` pushes. Deployments are manual; staging is the default target and production requires the explicit `CLOUDFLARE_PRODUCTION_DEPLOY_ENABLED=true` environment variable. Configure `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `DRHAIR_BACKEND_URL`, and `ADMIN_PUBLIC_URL` as GitHub environment secrets before deployment.
+GitHub Actions runs lint and a production build on pull requests and `main` pushes. A manual run from `main` deploys the single `dr-hair-admin` Worker on `admin.drhairindia.com`; backend calls use `https://api.drhairindia.com`. Set `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in the GitHub `production` environment. Local `npm run deploy` targets the same Worker and custom domains.
 
 ## Brand
 

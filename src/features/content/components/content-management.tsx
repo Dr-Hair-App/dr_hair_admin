@@ -234,17 +234,21 @@ export function ContentManagement({
   const toggleReviewModerationStatus = async (review: ReviewContentItem) => {
     const nextStatus = review.status === "Published" ? "rejected" : "active";
     const numericId = parseInt(review.id.replace(/\D/g, ""), 10);
-    if (!isNaN(numericId)) {
-      try {
-        const response = await fetch("/api/admin/reviews", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: numericId, status: nextStatus }),
-        });
-        if (response.ok) {
-          onToast(nextStatus === "active" ? "Review approved & published to app." : "Review moved to rejected.");
-        }
-      } catch (_) {}
+    if (!Number.isInteger(numericId)) {
+      onToast("This review does not have a valid server ID and cannot be moderated.");
+      return;
+    }
+    try {
+      const response = await fetch("/api/admin/reviews", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: numericId, status: nextStatus }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result?.message || "Review moderation failed.");
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "Review moderation failed.");
+      return;
     }
     setReviews((prev) =>
       prev.map((r) =>
@@ -365,10 +369,12 @@ export function ContentManagement({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: trimmed, type: "video" }),
       });
-      if (response.ok) {
-        onToast(`Category "${trimmed}" saved to database and live in mobile app!`);
-      }
-    } catch (_) {}
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result?.message || "Category could not be saved.");
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "Category could not be saved.");
+      return;
+    }
 
     setCategories([...categories, trimmed]);
     setSelectedCategory(trimmed);
@@ -760,7 +766,7 @@ export function ContentManagement({
               onClick={() => canEdit && setIsCategoryModalOpen(true)}
             >
               <FolderPlus size={14} />
-              <span>+ Add Category</span>
+              <span>Add Category</span>
             </button>
             <button
               className="button button-primary text-xs flex items-center gap-1.5"
@@ -769,7 +775,7 @@ export function ContentManagement({
               <Plus size={14} />
               <span>
                 {activeTab === "videos"
-                  ? "+ Add YouTube Video"
+                  ? "Add YouTube Video"
                   : activeTab === "reviews"
                     ? "Add Patient Review"
                     : "Create Banner"}
@@ -787,7 +793,7 @@ export function ContentManagement({
 
       {embedded && <div className="mb-4 flex flex-wrap justify-end gap-2">
         {canEdit && <button className="button button-secondary button-small" onClick={() => setIsCategoryModalOpen(true)}><FolderPlus size={13} />Add category</button>}
-        {(canEdit || canUploadMedia) && <button className="button button-primary button-small" onClick={openCreateModal}><Plus size={13} />{activeTab === "videos" ? "+ Add YouTube Video" : activeTab === "reviews" ? "Add patient story" : "Create banner"}</button>}
+        {(canEdit || canUploadMedia) && <button className="button button-primary button-small" onClick={openCreateModal}><Plus size={13} />{activeTab === "videos" ? "Add YouTube video" : activeTab === "reviews" ? "Add patient story" : "Create banner"}</button>}
       </div>}
 
       {/* Top Content Type Switcher */}
@@ -855,8 +861,8 @@ export function ContentManagement({
         </div>
       </div>
 
-      {/* Category Pills & Toolbar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+      {/* Category filters */}
+      <div className="mb-3">
         {/* Category Filters */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin text-xs">
           <span className="text-slate-400 font-medium text-[11px] mr-1">Category:</span>
@@ -890,19 +896,6 @@ export function ContentManagement({
           </button>
         </div>
 
-        {/* Status Filter */}
-        <div className="flex items-center gap-2">
-          <select
-            className="period-select text-xs"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
-            <option>All status</option>
-            <option>Published</option>
-            <option>Draft</option>
-            <option>Review</option>
-          </select>
-        </div>
       </div>
 
       <TableToolbar
@@ -910,20 +903,34 @@ export function ContentManagement({
         onChange={setQuery}
         placeholder={`Search ${activeTab === "videos" ? "videos by title, caption, creator..." : activeTab === "reviews" ? "reviews by patient, treatment, keyword..." : "banners by title, route..."}`}
         right={
-          <button
-            className="filter-button"
-            onClick={() => {
-              setQuery("");
-              setSelectedCategory("All");
-              setStatusFilter("All status");
-            }}
-          >
-            <X size={13} />
-            Reset
-          </button>
+          <div className="content-filter-controls">
+            <select
+              className="period-select text-xs"
+              aria-label="Filter content by status"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option>All status</option>
+              <option>Published</option>
+              <option>Draft</option>
+              <option>Review</option>
+            </select>
+            <button
+              className="filter-button"
+              onClick={() => {
+                setQuery("");
+                setSelectedCategory("All");
+                setStatusFilter("All status");
+              }}
+            >
+              <X size={13} />
+              Reset
+            </button>
+          </div>
         }
       />
 
+      <div key={`${activeTab}-${viewMode}`} className="tab-panel-transition">
       {/* ============================================================== */}
       {/* 1. VIDEOS TAB VIEW */}
       {/* ============================================================== */}
@@ -1324,6 +1331,7 @@ export function ContentManagement({
           )}
         </div>
       )}
+      </div>
 
       {/* ============================================================== */}
       {/* MODAL: ADD NEW CATEGORY */}
@@ -1467,7 +1475,7 @@ export function ContentManagement({
                     placeholder="https://youtube.com/watch?v=... or https://youtu.be/... or https://youtube.com/shorts/..."
                     value={formVideoUrl}
                     onChange={(event) => setFormVideoUrl(event.target.value)}
-                    className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white p-2.5 text-xs focus:border-rose-500 focus:outline-none"
+                    className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white p-2.5 text-xs"
                   />
                   <span className="mt-1 block text-[10px] text-slate-400">
                     Supports desktop watch URLs, mobile links, Shorts, and embed links.

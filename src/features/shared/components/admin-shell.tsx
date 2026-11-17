@@ -1,14 +1,15 @@
 "use client";
 
 import {
-  Activity, Bell, CalendarDays, ChevronLeft, Flag,
+  Bell, CalendarDays, ChevronLeft, Flag,
   Gauge, LayoutDashboard, LogOut, Package, PanelsTopLeft, Settings,
-  ShieldCheck, ShoppingBag, X,
+  ShieldCheck, ShoppingBag, UsersRound, X,
 } from "lucide-react";
 import Image from "next/image";
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 import { HeaderSearch } from "./header-search";
+import { MobileAdminNavigation } from "./mobile-admin-navigation";
 import { visibleNavigation, type PanelFeatureAccess } from "../lib/permissions";
 import type { AdminPermissionId, PageKey, Role } from "../types";
 
@@ -21,7 +22,7 @@ const pageLabels: Record<PageKey, string> = {
   tests: "Hair tests & reports",
   bookings: "Bookings",
   team: "Admin users",
-  activity: "Audit log",
+  activity: "Patient accounts",
   notifications: "Notifications",
 };
 
@@ -128,7 +129,7 @@ export function AdminShell({
   }, []);
 
   const firstName = userName ? userName.split(" ")[0] : "Admin";
-  const greetingName = userName.includes("@") || firstName === "Dr." ? "Dr. Hair" : firstName;
+  const greetingName = userName.includes("@") || /^dr\.?\s+hair\b/i.test(userName.trim()) || firstName === "Dr." ? "Dr. Hair" : firstName;
   const initials = userName
     ? userName
       .split(/\s+/)
@@ -172,8 +173,8 @@ export function AdminShell({
       subtitle: "Manage clinic staff accounts, feature permissions, and role security",
     },
     activity: {
-      title: "Audit Log & Security",
-      subtitle: "System audit trail, security events, and administrative actions",
+      title: "Patient Accounts",
+      subtitle: "Review login access and manage patient account status",
     },
     notifications: {
       title: "Clinic Alerts & Notifications",
@@ -211,7 +212,7 @@ export function AdminShell({
     if (key === "catalog") return <ShoppingBag size={19} strokeWidth={1.75} />;
     if (key === "orders") return <Package size={19} strokeWidth={1.75} />;
     if (key === "team") return <ShieldCheck size={19} strokeWidth={1.75} />;
-    if (key === "activity") return <Activity size={19} strokeWidth={1.75} />;
+    if (key === "activity") return <UsersRound size={19} strokeWidth={1.75} />;
     return <LayoutDashboard size={19} strokeWidth={1.75} />;
   };
 
@@ -257,7 +258,7 @@ export function AdminShell({
       {/* Main workspace and responsive app bar. */}
       <div className="min-h-screen min-w-0 flex flex-col lg:ml-[clamp(92px,5.6vw,124px)]">
         <header className={[
-          "sticky top-0 z-30 px-4 py-3 transition-[background-color,backdrop-filter] duration-200 sm:px-6 lg:px-8 xl:px-10 border-b border-slate-200/50",
+          "mobile-admin-header sticky top-0 z-30 px-4 py-3 transition-[background-color,backdrop-filter] duration-200 sm:px-6 lg:px-8 xl:px-10 border-b border-slate-200/50",
           headerScrolled ? "bg-[#F7F9FC]/85 backdrop-blur-xl shadow-2xs" : "bg-[#F7F9FC]",
         ].join(" ")}>
           <div className="flex w-full max-w-[1560px] mx-auto items-center justify-between gap-3">
@@ -344,37 +345,14 @@ export function AdminShell({
           </div>
         </header>
 
-        <nav id="admin-navigation" aria-label="Workspace tabs" className="sticky top-[73px] z-20 border-b border-slate-200/70 bg-[#F7F9FC]/95 px-4 py-2 backdrop-blur-xl sm:px-6 lg:hidden">
-          <div className="mx-auto flex w-full max-w-[1560px] min-w-0 items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="tablist" aria-label="Admin sections">
-            {nav.map((item) => {
-              const isActive = page === item.key;
-              return <button
-                key={item.key}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                aria-current={isActive ? "page" : undefined}
-                onClick={() => onPageChange(item.key)}
-                className={[
-                  "inline-flex min-h-10 shrink-0 items-center gap-2 rounded-xl px-3 text-xs font-semibold transition-colors duration-150 sm:px-3.5 sm:text-sm",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D9488] focus-visible:ring-offset-2",
-                  isActive ? "bg-white text-[#0D9488] shadow-xs ring-1 ring-slate-200/80" : "text-slate-600 hover:bg-white/70 hover:text-[#1A365D]",
-                ].join(" ")}
-              >
-                {getNavIcon(item.key, isActive)}
-                <span>{item.label}</span>
-                {Boolean(item.count) && <span className="ml-0.5 h-1.5 w-1.5 rounded-full bg-[#0D9488]" />}
-              </button>;
-            })}
-          </div>
-        </nav>
-
-        <main className="w-full min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8 xl:px-10">
+        <main className="mobile-admin-main w-full min-w-0 flex-1 px-3 py-4 pb-28 sm:px-6 sm:py-6 sm:pb-28 lg:px-8 lg:pb-6 xl:px-10">
           <div className="w-full max-w-[1560px] mx-auto min-w-0">
             {children}
           </div>
         </main>
       </div>
+
+      <MobileAdminNavigation items={nav} page={page} onNavigate={onPageChange} renderIcon={getNavIcon} />
 
       {navTooltip && createPortal(<div role="tooltip" className="pointer-events-none fixed z-[60] -translate-y-1/2 whitespace-nowrap rounded-xl bg-[#1A365D] px-3 py-1.5 text-xs font-semibold text-white shadow-lg animate-in fade-in slide-in-from-left-1 duration-150 motion-reduce:animate-none" style={{ left: navTooltip.left, top: navTooltip.top }}>{navTooltip.label}</div>, document.body)}
 

@@ -173,7 +173,7 @@ export function AppointmentBillingControl({
                 onChange={(e) => setFee(e.target.value === "" ? null : Math.max(0, Number(e.target.value)))}
                 className={`w-24 px-2.5 py-1 text-xs font-bold border rounded-lg text-right transition-all ${
                   paymentRequired
-                    ? "border-teal-300 text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 shadow-xs"
+                    ? "border-slate-200 text-slate-800 bg-white shadow-xs"
                     : "border-slate-200 text-slate-400 bg-slate-200/50 cursor-not-allowed select-none"
                 }`}
                 title={paymentRequired ? "Set consultation fee" : "Consultation fee is disabled while online payment is OFF"}

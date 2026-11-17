@@ -50,7 +50,8 @@ export function Dashboard({ role, onNavigate, onOpenPatient, permissions = [], o
   anchor?: string;
 }) {
   const isSuper = role === "super-admin";
-  const clinicHolidays: string[] = [];
+  const [clinicHolidays, setClinicHolidays] = useState<string[]>([]);
+  const [clinicClosedWeekdays, setClinicClosedWeekdays] = useState<number[]>([]);
   const [selectedAppointmentDate, setSelectedAppointmentDate] = useState(() => startOfToday());
   const [selectedBooking, setSelectedBooking] = useState<BookingRecord | null>(null);
   const [serverSummary, setServerSummary] = useState<{
@@ -112,8 +113,30 @@ export function Dashboard({ role, onNavigate, onOpenPatient, permissions = [], o
     fetch("/api/admin/appointments/schedule", { cache: "no-store", signal: controller.signal })
       .then((response) => response.ok ? response.json() : null)
       .then((result) => {
-        if (!controller.signal.aborted && typeof result?.data?.doctor_name === "string") {
-          setClinicDoctorName(result.data.doctor_name);
+        if (!controller.signal.aborted && result?.data && typeof result.data === "object") {
+          if (typeof result.data.doctor_name === "string") setClinicDoctorName(result.data.doctor_name);
+          const closedWeekdays = result.data.weekly_closed_weekdays;
+          if (Array.isArray(closedWeekdays)) {
+            setClinicClosedWeekdays(closedWeekdays.map(Number).filter((weekday: number) => Number.isInteger(weekday) && weekday >= 1 && weekday <= 7));
+          }
+        }
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/admin/appointments/closed-dates", { cache: "no-store", signal: controller.signal })
+      .then((response) => response.ok ? response.json() : null)
+      .then((result) => {
+        const items = result?.data?.items;
+        if (!controller.signal.aborted && Array.isArray(items)) {
+          setClinicHolidays(items.flatMap((item: unknown) => {
+            if (!item || typeof item !== "object") return [];
+            const date = (item as Record<string, unknown>).date;
+            return typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date) ? [date] : [];
+          }));
         }
       })
       .catch(() => {});
@@ -329,6 +352,7 @@ export function Dashboard({ role, onNavigate, onOpenPatient, permissions = [], o
         selectedDate={selectedAppointmentDate}
         onSelectDate={setSelectedAppointmentDate}
         clinicHolidays={clinicHolidays}
+        clinicClosedWeekdays={clinicClosedWeekdays}
       />
       <SelectedDateAppointments
         bookings={permitted("bookings.manage") ? selectedDateAppointments : []}
@@ -351,7 +375,7 @@ export function Dashboard({ role, onNavigate, onOpenPatient, permissions = [], o
       </article>
       <div className="grid grid-cols-1 gap-4 lg:col-span-7">
       <article className="card overflow-hidden rounded-[28px]">
-        <div className="card-head"><div><h2 className="card-title">Recent activity</h2><p className="card-note">Latest recorded backend activity</p></div><button className="row-action" aria-label="View activity" onClick={() => isSuper ? onNavigate("activity") : onNavigate(permitted("patients.view") ? "patients" : "overview")}><ArrowRight size={16} /></button></div>
+        <div className="card-head"><div><h2 className="card-title">Recent activity</h2><p className="card-note">Latest recorded backend activity</p></div></div>
         {activityRows.length ? <div className="activity-list">{activityRows.map((event, index) => {
           const Icon = event.type === "Orders" || event.type === "Commerce" ? PackageCheck : event.type === "Bookings" ? CalendarCheck2 : event.type === "Testing" ? FileText : event.type === "Access" ? UsersRound : event.type === "Feature" ? BellRing : Activity;
           return <div className="activity-row" key={`${event.who}-${event.time}-${index}`}><div className="activity-icon"><Icon size={14} /></div><div className="activity-copy"><div className="activity-text"><strong>{event.who}</strong> {event.action} <strong>{event.target}</strong></div><div className="activity-time">{event.time} · {event.type}</div></div></div>;
@@ -421,7 +445,7 @@ function Kpi({
   const content = (
     <div className="flex h-full flex-col justify-between">
       <div className="flex items-start justify-between gap-2">
-        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 line-clamp-1">{label}</span>
+        <span className="kpi-label min-w-0 text-[11px] font-bold uppercase tracking-[.08em] leading-snug text-slate-500 line-clamp-2">{label}</span>
         <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-xl border ${toneStyles.bg} shadow-xs`}>
           {icon}
         </span>
@@ -456,11 +480,12 @@ function Kpi({
   );
 }
 
-function AppointmentCalendar({ bookings, selectedDate, onSelectDate, clinicHolidays }: {
+function AppointmentCalendar({ bookings, selectedDate, onSelectDate, clinicHolidays, clinicClosedWeekdays }: {
   bookings: BookingRecord[];
   selectedDate: Date;
   onSelectDate: (date: Date) => void;
   clinicHolidays: string[];
+  clinicClosedWeekdays: number[];
 }) {
   const [month, setMonth] = useState(() => {
     const now = new Date();
@@ -482,6 +507,13 @@ function AppointmentCalendar({ bookings, selectedDate, onSelectDate, clinicHolid
   }, [bookings]);
   const selectedKey = localDateKey(selectedDate);
   const todayKey = localDateKey(new Date());
+  const datesInMonth = dayCells.filter((day): day is number => day !== null).map((day) => new Date(month.getFullYear(), month.getMonth(), day));
+  const bookedDateCount = datesInMonth.filter((date) => (bookingsByDate.get(localDateKey(date))?.length ?? 0) > 0).length;
+  const closedDateCount = datesInMonth.filter((date) => {
+    const weekday = ((date.getDay() + 6) % 7) + 1;
+    const key = localDateKey(date);
+    return clinicHolidays.includes(key) || clinicClosedWeekdays.includes(weekday);
+  }).length;
 
   const moveMonth = (change: number) => {
     const next = new Date(month.getFullYear(), month.getMonth() + change, 1);
@@ -496,76 +528,76 @@ function AppointmentCalendar({ bookings, selectedDate, onSelectDate, clinicHolid
     onSelectDate(today);
   };
 
-  return <article className="min-w-0 overflow-hidden rounded-[28px] bg-[#1A365D] p-5 text-white shadow-sm sm:p-6 lg:col-span-5 xl:col-span-4 flex flex-col justify-between" aria-label="Appointment calendar">
+  return <article className="clinic-calendar min-w-0 overflow-hidden lg:col-span-5 xl:col-span-4" aria-label="Appointment calendar">
     <div>
-      <div className="flex flex-col gap-2.5 border-b border-white/10 pb-3.5 sm:flex-row sm:items-center sm:justify-between">
+      <div className="clinic-calendar-header">
         <div>
-          <span className="text-[10px] font-bold uppercase tracking-[.18em] text-[#45c4b5]">OPD Schedule</span>
-          <h2 className="mt-0.5 text-lg font-bold tracking-tight">Clinic appointments</h2>
+          <span className="clinic-calendar-eyebrow">OPD schedule</span>
+          <h2>Clinic appointments</h2>
         </div>
-        <div className="flex w-full items-center justify-between gap-1 sm:w-auto sm:justify-start">
-          <button type="button" onClick={returnToToday} className="h-8 rounded-full bg-white/10 px-3 text-[11px] font-semibold text-slate-200 transition hover:bg-white/15 hover:text-white">Today</button>
-          <button type="button" onClick={() => moveMonth(-1)} aria-label="Previous month" className="grid h-8 w-8 place-items-center rounded-full text-slate-300 transition hover:bg-white/10 hover:text-white"><ChevronLeft size={17} /></button>
-          <span className="min-w-[104px] text-center text-xs font-semibold text-slate-200" aria-live="polite">{monthTitle}</span>
-          <button type="button" onClick={() => moveMonth(1)} aria-label="Next month" className="grid h-8 w-8 place-items-center rounded-full text-slate-300 transition hover:bg-white/10 hover:text-white"><ChevronRight size={17} /></button>
+        <div className="clinic-calendar-controls">
+          <button type="button" onClick={returnToToday} className="clinic-calendar-today">Today</button>
+          <div className="clinic-calendar-month-nav">
+            <button type="button" onClick={() => moveMonth(-1)} aria-label="Previous month"><ChevronLeft size={16} /></button>
+            <span aria-live="polite">{monthTitle}</span>
+            <button type="button" onClick={() => moveMonth(1)} aria-label="Next month"><ChevronRight size={16} /></button>
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-7 py-2.5 text-center text-[10px] font-bold uppercase tracking-wide text-slate-400" aria-hidden="true">
+      <div className="clinic-calendar-weekdays" aria-hidden="true">
         {["M", "T", "W", "T", "F", "S", "S"].map((day, index) => <span key={`${day}-${index}`}>{day}</span>)}
       </div>
-      <div className="grid grid-cols-7 gap-y-1.5 text-center">
+      <div className="clinic-calendar-days">
         {dayCells.map((day, index) => {
-          if (day === null) return <span aria-hidden="true" key={`blank-${index}`} className="mx-auto h-9 w-9" />;
+          if (day === null) return <span aria-hidden="true" key={`blank-${index}`} className="clinic-calendar-day-empty" />;
           const date = new Date(month.getFullYear(), month.getMonth(), day);
           const key = localDateKey(date);
           const count = bookingsByDate.get(key)?.length ?? 0;
           const isSelected = key === selectedKey;
           const isToday = key === todayKey;
-          const isClosed = clinicHolidays.includes(key) || date.getDay() === 0;
-          const dayTone = isSelected
-            ? "bg-white font-bold text-[#1A365D] shadow-md scale-105"
-            : isClosed
-              ? "bg-[#F5DEDA] font-semibold text-[#8D514D] hover:bg-[#F0D1CB]"
-              : count > 1
-                ? "bg-[#78C5B6] font-bold text-[#153A58] hover:bg-[#8BD0C2]"
-                : count === 1
-                  ? "bg-[#D8EEE9] font-semibold text-[#1A365D] hover:bg-[#C7E6DF]"
-                  : isToday
-                    ? "ring-1.5 ring-white/70 text-white font-semibold"
-                    : "text-slate-300 hover:bg-white/10";
+          const isPast = key < todayKey;
+          const weekday = ((date.getDay() + 6) % 7) + 1;
+          const isClosed = clinicHolidays.includes(key) || clinicClosedWeekdays.includes(weekday);
           const statusLabel = isClosed ? ", clinic closed" : "";
           return <button
             key={key}
             type="button"
             aria-label={`${formatFullDate(date)}${count ? `, ${count} appointment${count === 1 ? "" : "s"}` : ", no appointments"}${statusLabel}`}
             aria-pressed={isSelected}
+            aria-current={isToday ? "date" : undefined}
             onClick={() => onSelectDate(date)}
-            className={`relative mx-auto grid h-9 w-9 place-items-center rounded-full text-xs font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#45c4b5] ${dayTone} ${count > 0 && isClosed && !isSelected ? "ring-2 ring-[#76C6B7]" : ""} ${isSelected && isClosed ? "ring-2 ring-[#E7B9B3]" : ""}`}
+            className={`clinic-calendar-day${isSelected ? " is-selected" : ""}${isClosed ? " is-closed" : ""}${count > 0 ? " has-bookings" : ""}${isToday ? " is-today" : ""}${isPast ? " is-past" : ""}`}
           >
-            {day}
+            <span>{day}</span>
+            {count > 0 && <i aria-hidden="true">{count > 9 ? "9+" : count}</i>}
           </button>;
         })}
       </div>
     </div>
 
     {/* Calendar Legend for immediate visual clarity */}
-    <div className="mt-4 pt-3.5 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-300">
-      <div className="flex items-center gap-1.5">
-        <span className="h-2 w-2 rounded-full bg-white shadow-xs" />
-        <span className="text-[10px]">Selected</span>
+    <div className="clinic-calendar-summary" aria-live="polite">
+      <span><strong>{bookedDateCount}</strong> booked date{bookedDateCount === 1 ? "" : "s"}</span>
+      <span aria-hidden="true">·</span>
+      <span><strong>{closedDateCount}</strong> closed date{closedDateCount === 1 ? "" : "s"}</span>
+    </div>
+    <div className="clinic-calendar-legend" aria-label="Calendar legend">
+      <div>
+        <span className="legend-selected" />
+        <span>Selected</span>
       </div>
-      <div className="flex items-center gap-1.5">
-        <span className="h-2 w-2 rounded-full bg-[#78C5B6]" />
-        <span className="text-[10px]">Booked</span>
+      <div>
+        <span className="legend-booked" />
+        <span>Booked</span>
       </div>
-      <div className="flex items-center gap-1.5">
-        <span className="h-2 w-2 rounded-full bg-[#F5DEDA]" />
-        <span className="text-[10px]">Closed</span>
+      <div>
+        <span className="legend-closed" />
+        <span>Closed</span>
       </div>
-      <div className="flex items-center gap-1.5">
-        <span className="h-2 w-2 rounded-full border border-white/80" />
-        <span className="text-[10px]">Today</span>
+      <div>
+        <span className="legend-today" />
+        <span>Today</span>
       </div>
     </div>
   </article>;
@@ -728,7 +760,7 @@ function RegisteredPatients({ patients, totalCount, loadState, onOpenPatient }: 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search by name, ID, phone…"
-              className="w-full rounded-xl border border-slate-200 bg-slate-50/70 py-1.5 pl-9 pr-8 text-xs text-slate-800 placeholder:text-slate-400 focus:border-teal-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-100 transition"
+              className="w-full rounded-xl border border-slate-200 bg-slate-50/70 py-1.5 pl-9 pr-8 text-xs text-slate-800 placeholder:text-slate-400 transition-colors"
             />
             {searchQuery && (
               <button

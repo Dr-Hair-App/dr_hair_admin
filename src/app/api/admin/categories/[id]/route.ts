@@ -1,20 +1,27 @@
-import { NextRequest } from "next/server";
-import { backendUrl, noStoreJson, readJson } from "../../../_lib/backend";
+import { cookies } from "next/headers";
+import { ADMIN_SESSION_COOKIE, fetchBackend, noStoreJson, readJson } from "../../../_lib/backend";
+
+type RouteContext = { params: Promise<{ id: string }> };
+
+async function adminToken() {
+  return (await cookies()).get(ADMIN_SESSION_COOKIE)?.value;
+}
 
 export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  _request: Request,
+  { params }: RouteContext
 ) {
+  const token = await adminToken();
+  if (!token) return noStoreJson({ status: "error", message: "Sign in to manage categories." }, 401);
   try {
     const { id } = await params;
-    const token = request.headers.get("authorization") || "";
     const body = await request.json();
-    const upstream = await fetch(backendUrl(`/api/v1/admin/categories/${encodeURIComponent(id)}`), {
+    const upstream = await fetchBackend(`/api/v1/admin/categories/${encodeURIComponent(id)}`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
-        ...(token ? { Authorization: token } : {}),
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(body),
       cache: "no-store",
@@ -27,17 +34,18 @@ export async function PUT(
 }
 
 export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  _request: Request,
+  { params }: RouteContext
 ) {
+  const token = await adminToken();
+  if (!token) return noStoreJson({ status: "error", message: "Sign in to manage categories." }, 401);
   try {
     const { id } = await params;
-    const token = request.headers.get("authorization") || "";
-    const upstream = await fetch(backendUrl(`/api/v1/admin/categories/${encodeURIComponent(id)}`), {
+    const upstream = await fetchBackend(`/api/v1/admin/categories/${encodeURIComponent(id)}`, {
       method: "DELETE",
       headers: {
         Accept: "application/json",
-        ...(token ? { Authorization: token } : {}),
+        Authorization: `Bearer ${token}`,
       },
       cache: "no-store",
     });

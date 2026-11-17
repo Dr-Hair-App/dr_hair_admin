@@ -144,7 +144,16 @@ function CareOperationsPage({
       const [scheduleBody, billingBody] = await Promise.all([
         scheduleResponse.json().catch(() => ({})), billingResponse.json().catch(() => ({})),
       ]);
-      if (!controller.signal.aborted && scheduleResponse.ok) setClinicSchedule(scheduleBody.data || null);
+      if (!controller.signal.aborted && scheduleResponse.ok) {
+        const schedule = scheduleBody.data && typeof scheduleBody.data === "object"
+          ? scheduleBody.data as Partial<ClinicSchedule>
+          : null;
+        setClinicSchedule(schedule ? {
+          ...schedule,
+          weekly_closed_weekdays: Array.isArray(schedule.weekly_closed_weekdays) ? schedule.weekly_closed_weekdays : [],
+          sessions: Array.isArray(schedule.sessions) ? schedule.sessions : [],
+        } as ClinicSchedule : null);
+      }
       if (!controller.signal.aborted && billingResponse.ok) {
         const fee = Number(billingBody.data?.consultation_fee);
         setClinicBillingFee(Number.isFinite(fee) ? fee : null);
@@ -727,13 +736,13 @@ function CareOperationsPage({
   };
 
   return (
-    <div className="page-wrap w-full min-w-0">
+    <div className={`page-wrap w-full min-w-0 ${kind === "bookings" ? "workspace-page clinic-bookings-page" : ""}`}>
       <PageHeader
         eyebrow={config.eyebrow}
         title={config.title}
         description={config.desc}
         action={!isPatient ? (
-          <div className="flex w-full flex-col justify-end gap-2 sm:w-auto sm:flex-row sm:flex-nowrap [&>.button]:w-full sm:[&>.button]:w-auto">
+          <>
             <button className="button button-secondary" onClick={() => setShowScheduleModal(true)}>
               <CalendarDays size={14} />
               Manage availability
@@ -742,7 +751,7 @@ function CareOperationsPage({
               <Plus size={14} />
               Add appointment
             </button>
-          </div>
+          </>
         ) : permissions.includes("patients.export") ? (
           <button
             className="button button-secondary"
@@ -1439,7 +1448,7 @@ function CareOperationsPage({
           <div className="availability-content">
             <div className="availability-hours">
               <Clock size={15} />
-              <span>{clinicSchedule?.is_configured ? `Clinic sessions: ${clinicSchedule.sessions.map((session) => `${session.label} · ${session.opens_at}–${session.closes_at}`).join("; ")}` : "Clinic hours are not configured yet."}</span>
+              <span>{clinicSchedule?.is_configured && clinicSchedule.sessions.length ? `Clinic sessions: ${clinicSchedule.sessions.map((session) => `${session.label} · ${session.opens_at}–${session.closes_at}`).join("; ")}` : "Clinic hours are not configured yet."}</span>
               <span className="availability-weekly-off ml-0 sm:ml-auto">{clinicSchedule?.weekly_closed_weekdays.length ? `Weekly closed: ${clinicSchedule.weekly_closed_weekdays.map((weekday) => weekdayLabels[weekday - 1]).join(", ")}` : "No weekly closed days set"}</span>
             </div>
 
@@ -1965,7 +1974,7 @@ function ClinicalMetric({
   };
 
   return (
-    <article className="card min-w-0 p-3 border border-slate-200 rounded-[22px] bg-white shadow-sm flex flex-col justify-between">
+    <article className={`clinical-metric clinical-metric-${tone} card min-w-0 p-3 border border-slate-200 rounded-[22px] bg-white shadow-sm flex flex-col justify-between`}>
       <div className="flex items-center justify-between mb-1.5">
         <span className="text-xs text-slate-500 font-medium">{label}</span>
         <span className={`p-1.5 rounded-lg border ${tones[tone]}`}>{icon}</span>

@@ -1,9 +1,6 @@
 "use client";
 
 import {
-  ArrowDownToLine,
-  History,
-  Users,
   ShieldAlert,
   Trash2,
   Lock,
@@ -12,23 +9,11 @@ import {
   AlertTriangle,
   RefreshCw,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Avatar, PageHeader, TableToolbar, Modal } from "../../shared/components/ui";
-import type { AuditEventRecord, Role } from "../../shared/types";
-
-const mapEventType = (type: string, action: string): AuditEventRecord["type"] => {
-  const norm = `${type} ${action}`.toLowerCase();
-  if (norm.includes("appointment") || norm.includes("booking")) return "Bookings";
-  if (norm.includes("access") || norm.includes("account") || norm.includes("admin")) return "Access";
-  if (norm.includes("feature")) return "Feature";
-  if (norm.includes("content") || norm.includes("video")) return "Content";
-  if (norm.includes("notification") || norm.includes("campaign")) return "Notifications";
-  if (norm.includes("release") || norm.includes("update") || norm.includes("policy")) return "App updates";
-  if (norm.includes("order")) return "Orders";
-  if (norm.includes("commerce") || norm.includes("product") || norm.includes("inventory")) return "Commerce";
-  if (norm.includes("test") || norm.includes("assessment")) return "Testing";
-  return "Clinical";
-};
+import { SlidingTabList } from "../../shared/components/sliding-tab-list";
+import type { Role } from "../../shared/types";
 
 export interface LoginUserRecord {
   id: number;
@@ -42,36 +27,41 @@ export interface LoginUserRecord {
   blocked_reason?: string | null;
   last_login_at?: string | null;
   created_at?: string | null;
+  has_completed_assessment?: boolean;
 }
 
-export function AuditLog({
+type PatientSegment = "accounts_assessments" | "product_customers" | "appointment_treatment";
+type SegmentSummary = Record<PatientSegment, { total: number; assessed?: number; not_assessed?: number; active_within_days?: number }>;
+const patientSegments: { id: PatientSegment; label: string; detail: string }[] = [
+  { id: "accounts_assessments", label: "Accounts & assessments", detail: "Registered patients and assessment progress" },
+  { id: "product_customers", label: "Active product customers", detail: "Paid order + recent app login; product use itself is not tracked" },
+  { id: "appointment_treatment", label: "Appointments & treatment", detail: "Booked appointment plus treatment record" },
+];
+
+export function PatientAccountManagement({
   globalSearch,
   onToast,
-  events,
   role = "super-admin",
   onOpenPatient,
   onAudit,
 }: {
   globalSearch: string;
   onToast: (message: string) => void;
-  events: AuditEventRecord[];
   role?: Role;
   onOpenPatient?: (patientId: string) => void;
   onAudit?: (action: string, target: string) => void;
 }) {
+  const router = useRouter();
   const isSuperAdmin = role === "super-admin";
-  const [activeTab, setActiveTab] = useState<"users" | "system">("users");
-
-  // System audit log state
-  const [query, setQuery] = useState("");
-  const [kind, setKind] = useState("All activity");
-  const [serverEvents, setServerEvents] = useState<AuditEventRecord[]>([]);
-  const [loadingAudit, setLoadingAudit] = useState(false);
-  const [exporting, setExporting] = useState(false);
-
   // User management state
   const [users, setUsers] = useState<LoginUserRecord[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
+  const [userPage, setUserPage] = useState(1);
+  const [userPageSize, setUserPageSize] = useState(25);
+  const [usersTotal, setUsersTotal] = useState(0);
+  const [selectedSegment, setSelectedSegment] = useState<PatientSegment>("accounts_assessments");
+  const [segmentSummary, setSegmentSummary] = useState<SegmentSummary | null>(null);
+  const userRequest = useRef<AbortController | null>(null);
   const [userSearch, setUserSearch] = useState("");
   const [userStatusFilter, setUserStatusFilter] = useState<"All" | "Active" | "Blocked">("All");
 
@@ -83,48 +73,17 @@ export function AuditLog({
   const [deleteModalUser, setDeleteModalUser] = useState<LoginUserRecord | null>(null);
   const [isSubmittingDelete, setIsSubmittingDelete] = useState(false);
 
-  // Load system audit logs
-  const loadAuditLogs = async () => {
-    setLoadingAudit(true);
-    try {
-      const response = await fetch("/api/admin/audit-logs?limit=100", { cache: "no-store" });
-      const result = await response.json().catch(() => ({}));
-      if (response.ok) {
-        const rawItems = Array.isArray(result?.data?.items)
-          ? result.data.items
-          : Array.isArray(result?.data)
-          ? result.data
-          : [];
-        setServerEvents(
-          rawItems.map((item: unknown) => {
-            const raw = item as Record<string, unknown>;
-            const actor = String(raw.actor ?? "System");
-            const action = String(raw.action ?? "");
-            const target = String(raw.target ?? "");
-            const targetType = String(raw.targetType || raw.type || "System");
-            return {
-              who: actor,
-              initials: actor.split(/\s+/).map((p) => p[0] || "").join("").slice(0, 2).toUpperCase() || "SY",
-              action,
-              target,
-              type: mapEventType(targetType, action),
-              time: raw.created_at ? new Date(String(raw.created_at)).toLocaleString() : new Date().toLocaleString(),
-            };
-          })
-        );
-      }
-    } catch {
-      // Fallback silently to parent events
-    } finally {
-      setLoadingAudit(false);
-    }
-  };
-
   // Load user login activity list
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
+    userRequest.current?.abort();
+    const controller = new AbortController();
+    userRequest.current = controller;
     setLoadingUsers(true);
     try {
-      const response = await fetch("/api/admin/users?limit=100", { cache: "no-store" });
+      const search = userSearch.trim() || globalSearch.trim();
+      const params = new URLSearchParams({ page: String(userPage), limit: String(userPageSize), segment: selectedSegment });
+      if (search) params.set("search", search);
+      const response = await fetch(`/api/admin/users?${params.toString()}`, { cache: "no-store", signal: controller.signal });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(result?.message || "Failed to load patient accounts list.");
@@ -135,35 +94,34 @@ export function AuditLog({
         ? result.data
         : [];
       setUsers(rawList as LoginUserRecord[]);
+      setUsersTotal(Math.max(0, Number(result?.data?.total) || rawList.length));
     } catch (err) {
-      onToast(err instanceof Error ? err.message : "Could not load user accounts list.");
+      if (!controller.signal.aborted) onToast(err instanceof Error ? err.message : "Could not load user accounts list.");
     } finally {
-      setLoadingUsers(false);
+      if (!controller.signal.aborted) setLoadingUsers(false);
     }
-  };
+  }, [globalSearch, onToast, selectedSegment, userPage, userPageSize, userSearch]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadAuditLogs();
     void loadUsers();
-  }, []);
+    return () => userRequest.current?.abort();
+  }, [loadUsers]);
 
-  // Filtered system events
-  const effectiveEvents = serverEvents.length > 0 ? serverEvents : events;
-  const search = `${query} ${globalSearch}`.trim().toLowerCase();
-  const rows = useMemo(
-    () =>
-      effectiveEvents.filter(
-        (event) =>
-          `${event.who} ${event.action} ${event.target} ${event.type}`.toLowerCase().includes(search) &&
-          (kind === "All activity" || event.type === kind)
-      ),
-    [effectiveEvents, search, kind]
-  );
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/admin/users/segments", { cache: "no-store", signal: controller.signal })
+      .then((response) => response.ok ? response.json() : null)
+      .then((result) => {
+        if (!controller.signal.aborted && result?.data) setSegmentSummary(result.data as SegmentSummary);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
 
   // Filtered users
   const filteredUsers = useMemo(() => {
-    const q = `${userSearch} ${globalSearch}`.trim().toLowerCase();
+    const q = (userSearch.trim() || globalSearch.trim()).toLowerCase();
     return users.filter((u) => {
       const isBlocked = Boolean(u.is_blocked || u.status === "blocked");
       if (userStatusFilter === "Active" && isBlocked) return false;
@@ -173,28 +131,8 @@ export function AuditLog({
       return haystack.includes(q);
     });
   }, [users, userSearch, globalSearch, userStatusFilter]);
-
-  // Export audit logs
-  const handleExport = async () => {
-    setExporting(true);
-    try {
-      const response = await fetch("/api/admin/audit-logs/export?format=json");
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error("Export failed");
-      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(result?.data || {}, null, 2));
-      const downloadAnchor = document.createElement("a");
-      downloadAnchor.setAttribute("href", dataStr);
-      downloadAnchor.setAttribute("download", `drhair-audit-logs-${new Date().toISOString().slice(0, 10)}.json`);
-      document.body.appendChild(downloadAnchor);
-      downloadAnchor.click();
-      downloadAnchor.remove();
-      onToast("Audit log exported successfully.");
-    } catch {
-      onToast("Audit log export failed. Try again.");
-    } finally {
-      setExporting(false);
-    }
-  };
+  const activeSegment = patientSegments.find((segment) => segment.id === selectedSegment);
+  const activeSegmentSummary = segmentSummary?.[selectedSegment];
 
   // Block / Unblock user handler
   const handleConfirmBlock = async () => {
@@ -259,6 +197,8 @@ export function AuditLog({
       if (!response.ok) throw new Error(result.message || "Failed to delete user account");
 
       setUsers((prev) => prev.filter((u) => u.id !== targetUserId));
+      setUsersTotal((count) => Math.max(0, count - 1));
+      if (users.length === 1 && userPage > 1) setUserPage((page) => Math.max(1, page - 1));
       onToast(`User ${deleteModalUser.name} account permanently deleted.`);
 
       if (onAudit) {
@@ -273,71 +213,25 @@ export function AuditLog({
   };
 
   return (
-    <div className="page-wrap w-full min-w-0">
+    <div className="page-wrap workspace-page user-accounts-page w-full min-w-0">
       <PageHeader
         eyebrow="Management · Super Admin"
-        title="Audit log & User accounts"
-        description="Monitor user sessions, live activity, access controls, and administrative actions."
+        title="Patient accounts"
+        description="Review patient login access and manage active or blocked accounts."
         action={
-          <div className="flex items-center gap-2">
-            <button
-              className="button button-secondary"
-              onClick={() => { void loadUsers(); void loadAuditLogs(); }}
-              disabled={loadingUsers || loadingAudit}
-              title="Refresh records from database"
-            >
-              <RefreshCw size={14} className={loadingUsers || loadingAudit ? "animate-spin" : ""} />
-              {loadingUsers || loadingAudit ? "Refreshing..." : "Refresh"}
-            </button>
-            <button className="button button-secondary" disabled={exporting} onClick={handleExport}>
-              <ArrowDownToLine size={14} />
-              {exporting ? "Exporting…" : "Export log"}
-            </button>
-          </div>
+          <button className="button button-secondary" onClick={() => { void loadUsers(); }} disabled={loadingUsers} title="Refresh patient accounts from the API">
+            <RefreshCw size={14} className={loadingUsers ? "animate-spin" : ""} />
+            {loadingUsers ? "Refreshing..." : "Refresh"}
+          </button>
         }
       />
 
-      {/* Tabs Switcher */}
-      <div className="mb-5 flex border-b border-slate-200">
-        <button
-          type="button"
-          onClick={() => setActiveTab("users")}
-          className={`flex items-center gap-2 border-b-2 px-5 py-3 text-sm font-semibold transition-colors ${
-            activeTab === "users"
-              ? "border-[#1A365D] text-[#1A365D]"
-              : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800"
-          }`}
-        >
-          <Users size={16} />
-          <span>Logged-in users & accounts</span>
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600">
-            {users.length}
-          </span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("system")}
-          className={`flex items-center gap-2 border-b-2 px-5 py-3 text-sm font-semibold transition-colors ${
-            activeTab === "system"
-              ? "border-[#1A365D] text-[#1A365D]"
-              : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800"
-          }`}
-        >
-          <History size={16} />
-          <span>System audit trail</span>
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600">
-            {effectiveEvents.length}
-          </span>
-        </button>
-      </div>
-
-      {activeTab === "users" && (
-        <section className="card">
+      <section className="card">
           <div className="section-row flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="card-title">Registered & Active Patients</h2>
+              <h2 className="card-title">Patient groups</h2>
               <p className="card-note">
-                View login users, inspect details, and perform Super Admin account actions (Block/Delete).
+                Live segments from account, assessment, order, appointment, and treatment records.
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -354,14 +248,41 @@ export function AuditLog({
             </div>
           </div>
 
+          <SlidingTabList activeKey={selectedSegment} indicatorVariant="underline" className="patient-segment-tabs" label="Patient segments">
+            {patientSegments.map((segment) => {
+              const isSelected = selectedSegment === segment.id;
+              const summary = segmentSummary?.[segment.id];
+              return <button
+                key={segment.id}
+                type="button"
+                role="tab"
+                id={`patient-segment-tab-${segment.id}`}
+                aria-controls="patient-segment-panel"
+                aria-selected={isSelected}
+                onClick={() => { setSelectedSegment(segment.id); setUserPage(1); }}
+                className={`commerce-tab patient-segment-tab ${isSelected ? "selected" : ""}`}
+              >
+                {segment.label}
+                <span className="patient-segment-count">{summary ? summary.total.toLocaleString("en-IN") : "—"}</span>
+              </button>;
+            })}
+          </SlidingTabList>
+
+          <div className="patient-segment-summary" aria-live="polite">
+            <span>{activeSegment?.detail}</span>
+            {selectedSegment === "accounts_assessments" && activeSegmentSummary && <strong>{activeSegmentSummary.assessed ?? 0} assessed <i>·</i> {activeSegmentSummary.not_assessed ?? 0} not yet assessed</strong>}
+            {selectedSegment === "product_customers" && activeSegmentSummary?.active_within_days && <strong>App login within {activeSegmentSummary.active_within_days} days</strong>}
+          </div>
+
           <TableToolbar
             value={userSearch}
-            onChange={setUserSearch}
+            onChange={(value) => { setUserSearch(value); setUserPage(1); }}
             placeholder="Search patient by name, phone, email, or patient code..."
-            right={<span style={{ color: "#8a95a4", fontSize: 11 }}>{filteredUsers.length} patients found</span>}
+            right={<span style={{ color: "#8a95a4", fontSize: 11 }}>{usersTotal.toLocaleString("en-IN")} patients found</span>}
           />
 
-          <div className="table-wrap overflow-x-auto">
+          <div id="patient-segment-panel" role="tabpanel" aria-labelledby={`patient-segment-tab-${selectedSegment}`} tabIndex={0}>
+          <div key={selectedSegment} className="patient-accounts-table table-wrap overflow-x-auto animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none">
             <table>
               <thead>
                 <tr>
@@ -387,7 +308,7 @@ export function AuditLog({
                     ? new Date(u.last_login_at).toLocaleString()
                     : u.created_at
                     ? `Registered ${new Date(u.created_at).toLocaleDateString()}`
-                    : "Recently";
+                    : "Not recorded";
 
                   return (
                     <tr key={u.id}>
@@ -397,6 +318,7 @@ export function AuditLog({
                           <div>
                             <div className="person-name font-semibold text-slate-900">{u.name}</div>
                             <div className="text-xs text-slate-500 font-mono">{u.patient_code || `PT-${u.id}`}</div>
+                            {selectedSegment === "accounts_assessments" && <div className={`mt-0.5 text-[10px] font-medium ${u.has_completed_assessment ? "text-emerald-700" : "text-slate-400"}`}>{u.has_completed_assessment ? "Assessment complete" : "Assessment not completed"}</div>}
                           </div>
                         </div>
                       </td>
@@ -435,7 +357,7 @@ export function AuditLog({
                               if (onOpenPatient) {
                                 onOpenPatient(String(u.id));
                               } else {
-                                window.location.href = `/patients/${encodeURIComponent(u.id)}`;
+                                router.push(`/patients/${encodeURIComponent(u.id)}`);
                               }
                             }}
                             title="Open patient profile and clinical file"
@@ -499,110 +421,50 @@ export function AuditLog({
             </table>
           </div>
 
-          <div className="table-footer flex justify-between items-center text-xs text-slate-500 py-3 px-4">
-            <span>
-              Showing {filteredUsers.length} of {users.length} patient accounts
-            </span>
-            <span className="text-[11px] font-medium text-slate-400">
-              {isSuperAdmin ? "Super Admin permissions enabled" : "Read-only access"}
-            </span>
+          <div key={`mobile-${selectedSegment}`} className="patient-mobile-list animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none">
+            {filteredUsers.map((u) => {
+              const isBlocked = Boolean(u.is_blocked || u.status === "blocked");
+              return <article className="patient-mobile-card" key={u.id}>
+                <div className="patient-mobile-card-head">
+                  <Avatar initials={u.name.split(/\s+/).map((part) => part[0] || "").join("").slice(0, 2).toUpperCase() || "PT"} />
+                  <div className="patient-mobile-copy"><strong>{u.name}</strong><span>{u.patient_code || `PT-${u.id}`}</span></div>
+                  <span className={`patient-status ${isBlocked ? "is-blocked" : "is-active"}`}>{isBlocked ? "Blocked" : "Active"}</span>
+                </div>
+                <div className="patient-mobile-contact">
+                  <span>{u.phone || "No phone"}</span><span>{u.email || "No email"}</span>
+                </div>
+                <div className="patient-mobile-foot">
+                  <span>{u.last_login_at ? `Last active ${new Date(u.last_login_at).toLocaleDateString()}` : u.created_at ? `Joined ${new Date(u.created_at).toLocaleDateString()}` : "Activity not recorded"}</span>
+                  {selectedSegment === "accounts_assessments" && <span>{u.has_completed_assessment ? "Assessment complete" : "Assessment pending"}</span>}
+                </div>
+                <div className="patient-mobile-actions">
+                  <button type="button" className="button button-secondary button-small" onClick={() => onOpenPatient ? onOpenPatient(String(u.id)) : router.push(`/patients/${encodeURIComponent(u.id)}`)}><ExternalLink size={12} />Details</button>
+                  {isSuperAdmin && <button type="button" className="button button-secondary button-small" onClick={() => { setBlockReason(u.blocked_reason || ""); setBlockModalUser(u); }}>{isBlocked ? <Unlock size={12} /> : <Lock size={12} />}{isBlocked ? "Unblock" : "Block"}</button>}
+                  {isSuperAdmin && <button type="button" className="button button-danger button-small" onClick={() => setDeleteModalUser(u)}><Trash2 size={12} />Delete</button>}
+                </div>
+              </article>;
+            })}
+            {filteredUsers.length === 0 && <div className="empty-state">{loadingUsers ? "Loading user accounts…" : "No user accounts match those filters."}</div>}
           </div>
-        </section>
-      )}
-
-      {activeTab === "system" && (
-        <section className="card">
-          <div className="notice" style={{ marginBottom: 15 }}>
-            <History size={14} />
-            <span>
-              {serverEvents.length > 0
-                ? "Live audit stream connected. Sensitive credentials, OTPs, and authorization tokens are strictly redacted."
-                : "Activity captured in this browser preview. Server-side audit history begins after the API is connected."}
-            </span>
           </div>
 
-          <div className="section-row">
-            <div>
-              <h2 className="card-title">Recent changes</h2>
-              <p className="card-note">Content updates, access changes, and operational actions</p>
+          <div className="table-footer flex flex-col items-start justify-between gap-2 text-xs text-slate-500 py-3 px-4 sm:flex-row sm:items-center">
+            <div className="flex flex-wrap items-center gap-3">
+              <span>Showing {usersTotal === 0 ? 0 : ((userPage - 1) * userPageSize) + 1}–{Math.min(userPage * userPageSize, usersTotal)} of {usersTotal} patient accounts</span>
+              <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
+                Rows
+                <select className="period-select !min-h-7 !py-1" aria-label="Rows per page" value={userPageSize} onChange={(event) => { setUserPageSize(Number(event.target.value)); setUserPage(1); }}>
+                  {[10, 25, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}
+                </select>
+              </label>
             </div>
-            <select className="period-select" aria-label="Filter activity type" value={kind} onChange={(event) => setKind(event.target.value)}>
-              <option>All activity</option>
-              <option>Access</option>
-              <option>Feature</option>
-              <option>Content</option>
-              <option>Notifications</option>
-              <option>App updates</option>
-              <option>Commerce</option>
-              <option>Orders</option>
-              <option>Testing</option>
-              <option>Bookings</option>
-              <option>Clinical</option>
-            </select>
-          </div>
-
-          <TableToolbar
-            value={query}
-            onChange={setQuery}
-            placeholder="Search people, actions, or records..."
-            right={<span style={{ color: "#8a95a4", fontSize: 10 }}>{rows.length} events</span>}
-          />
-
-          <div className="table-wrap overflow-x-auto">
-            <table>
-              <thead>
-                <tr>
-                  <th>Person</th>
-                  <th>Action</th>
-                  <th>Area</th>
-                  <th>Time</th>
-                  <th>Details</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((event, index) => (
-                  <tr key={`${event.who}-${index}`}>
-                    <td>
-                      <div className="person flex items-center gap-2">
-                        <Avatar initials={event.initials} />
-                        <div className="person-name">{event.who}</div>
-                      </div>
-                    </td>
-                    <td>
-                      {event.action} <strong style={{ color: "#334258" }}>{event.target}</strong>
-                    </td>
-                    <td>
-                      <span className="status status-inactive" style={{ textTransform: "capitalize" }}>
-                        {event.type}
-                      </span>
-                    </td>
-                    <td>{event.time}</td>
-                    <td>
-                      <button
-                        className="button button-secondary button-small"
-                        onClick={() => onToast(`Event detail: ${event.who} ${event.action} ${event.target}.`)}
-                      >
-                        View details
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {rows.length === 0 && (
-                  <tr>
-                    <td colSpan={5}>
-                      <div className="empty-state">No activity matches those filters.</div>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="table-footer">
-            <span>Showing {rows.length} of {effectiveEvents.length} events</span>
+            <span className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium text-slate-400">
+              Page {userPage} of {Math.max(1, Math.ceil(usersTotal / userPageSize))}
+              <button type="button" className="button button-secondary button-small" disabled={userPage <= 1 || loadingUsers} onClick={() => setUserPage((page) => Math.max(1, page - 1))}>Previous</button>
+              <button type="button" className="button button-secondary button-small" disabled={userPage >= Math.ceil(usersTotal / userPageSize) || loadingUsers} onClick={() => setUserPage((page) => page + 1)}>Next</button>
+            </span>
           </div>
         </section>
-      )}
 
       {/* Block / Unblock Modal Dialog */}
       {blockModalUser && (

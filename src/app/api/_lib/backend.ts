@@ -7,6 +7,7 @@ interface ServiceBinding {
 }
 
 let backendServicePromise: Promise<ServiceBinding | null> | null = null;
+let fetchIntercepted = false;
 
 async function getBackendService(): Promise<ServiceBinding | null> {
   if (backendServicePromise) return backendServicePromise;
@@ -27,8 +28,8 @@ async function getBackendService(): Promise<ServiceBinding | null> {
 
 // Intercept backend fetches so Cloudflare Worker-to-Worker loop protection (404)
 // is bypassed transparently via the BACKEND_SERVICE Service Binding.
-if (typeof globalThis !== "undefined" && !(globalThis as any).__drhair_fetch_intercepted) {
-  (globalThis as any).__drhair_fetch_intercepted = true;
+if (typeof globalThis !== "undefined" && !fetchIntercepted) {
+  fetchIntercepted = true;
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async function (input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
     const urlString =
@@ -61,7 +62,7 @@ if (typeof globalThis !== "undefined" && !(globalThis as any).__drhair_fetch_int
 export function backendUrl(path: string) {
   const configuredOrigin =
     process.env.DRHAIR_BACKEND_URL?.trim() ||
-    "https://dr-hair-backend-production.drhair-app.workers.dev";
+    "https://api.drhairindia.com";
   const origin = configuredOrigin.replace(/\/+$/, "");
   return `${origin}${path}`;
 }

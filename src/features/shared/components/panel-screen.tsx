@@ -5,7 +5,7 @@ export function PanelScreen({ page, children }: { page: PageKey; children: React
   return (
     <div
       key={page}
-      className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-200 motion-reduce:animate-none"
+      className="screen-transition motion-reduce:animate-none"
       aria-label={`${page} screen`}
     >
       {children}

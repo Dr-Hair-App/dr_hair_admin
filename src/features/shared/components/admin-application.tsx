@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AdminAccountManagement } from "../../admin-users/components/admin-account-management";
-import { AuditLog } from "../../admin-users/components/audit-log";
+import { PatientAccountManagement } from "../../admin-users/components/patient-account-management";
 import { AppManagement } from "../../app-management/components/app-management";
 import { ProductManagement } from "../../commerce/components/product-management";
 import { Dashboard } from "../../dashboard/components/dashboard";
@@ -40,8 +40,8 @@ export function AdminApplication({ initialPage = "overview", initialPatientId = 
   const [globalSearch, setGlobalSearch] = useState("");
   const [toast, setToast] = useState("");
   const [adminRecords] = useSessionState<AdminRecord[]>("drhair-demo-admins", initialAdmins);
-  const [features, setFeatures] = useSessionState<FeatureRecord[]>("drhair-demo-app-features", initialFeatures);
-  const [panelAccess, setPanelAccess] = useSessionState<PanelFeatureAccess>("drhair-demo-panel-access", { patients: true, catalog: true, content: true, orders: true, bookings: true, tests: true });
+  const [features, setFeatures] = useState<FeatureRecord[]>(initialFeatures);
+  const [panelAccess, setPanelAccess] = useState<PanelFeatureAccess>({ patients: true, catalog: true, content: true, orders: true, bookings: true, tests: true });
   const [events, setEvents] = useSessionState<AuditEventRecord[]>("drhair-demo-audit", initialAuditEvents);
   const showToast = useCallback((message: string) => setToast(message), []);
   const closeToast = useCallback(() => setToast(""), []);
@@ -98,6 +98,25 @@ export function AdminApplication({ initialPage = "overview", initialPatientId = 
     return () => controller.abort();
   }, []);
 
+  useEffect(() => {
+    if (auth.status !== "signed-in") return;
+    const controller = new AbortController();
+    fetch("/api/admin/features?platform=admin", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload?.message || "Could not load admin module settings.");
+        const items = Array.isArray(payload?.data?.items) ? payload.data.items : [];
+        const values = Object.fromEntries(items
+          .filter((item: { key?: string }) => typeof item.key === "string" && item.key.startsWith("admin_"))
+          .map((item: { key: string; enabled?: boolean }) => [item.key.slice("admin_".length), item.enabled !== false]));
+        if (Object.keys(values).length) setPanelAccess((current) => ({ ...current, ...values }));
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) showToast(error instanceof Error ? error.message : "Could not load admin module settings.");
+      });
+    return () => controller.abort();
+  }, [auth.status, showToast]);
+
   const recordAudit = useCallback((action: string, target: string) => {
     const time = new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" }).format(new Date());
     setEvents((current) => [{ who: actorName, initials: actorName.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase(), action, target, time, type: action.match(/admin|access|permission|invitation|suspended|reactivated/i) ? "Access" : action.match(/app update|release policy|minimum version/i) ? "App updates" : action.match(/notification/i) ? "Notifications" : action.match(/feature|disabled|enabled/i) ? "Feature" : action.match(/hair test|report|file/i) ? "Testing" : action.match(/content|publish|draft|banner|home placement/i) ? "Content" : action.match(/booking|appointment|OPD status/i) ? "Bookings" : action.match(/order/i) ? "Orders" : action.match(/commerce|product|coupon|referral/i) ? "Commerce" : "Clinical" }, ...current]);
@@ -149,7 +168,7 @@ export function AdminApplication({ initialPage = "overview", initialPatientId = 
       case "bookings": return <OperationsPage key={bookingDate} kind="bookings" globalSearch={globalSearch} onToast={showToast} permissions={permissions} onAudit={recordAudit} initialDateFilter={bookingDate} />;
       case "notifications": return <NotificationCenter role={role} userName={visibleName} permissions={permissions} events={events} onNavigate={navigate} />;
       case "team": return role === "super-admin" ? <AdminAccountManagement /> : <Denied />;
-      case "activity": return role === "super-admin" ? <AuditLog globalSearch={globalSearch} onToast={showToast} events={events} role={role} onOpenPatient={(patientId) => router.push(`/patients/${encodeURIComponent(patientId)}`)} onAudit={recordAudit} /> : <Denied />;
+      case "activity": return role === "super-admin" ? <PatientAccountManagement globalSearch={globalSearch} onToast={showToast} role={role} onOpenPatient={(patientId) => router.push(`/patients/${encodeURIComponent(patientId)}`)} onAudit={recordAudit} /> : <Denied />;
     }
   }, [actorName, adminRecords, bookingDate, changePanelAccess, dashboardAnchor, events, features, globalSearch, initialAssessmentRef, initialPatientId, navigate, page, panelAccess, permissions, recordAudit, role, router, setFeatures, showToast, visibleName]);
 

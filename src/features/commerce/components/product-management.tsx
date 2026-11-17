@@ -3,6 +3,7 @@
 import { BadgePercent, Package, ShoppingBag, TrendingUp } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "../../shared/components/ui";
+import { SlidingTabList } from "../../shared/components/sliding-tab-list";
 import type { CouponRecord, ProductRecord, ProductStatus, ProductBenefit, ProductIngredient, ProductUsageStep, ProductClinicalClaim } from "../types";
 import { CouponsPanel } from "./coupons-panel";
 import { CommerceOverview } from "./commerce-overview";
@@ -150,12 +151,17 @@ export function ProductManagement({ onToast, permissions, panelAccess, globalSea
     setActiveTab(tab);
   };
 
-  return <div className="page-wrap w-full min-w-0">
-    {resolvedActiveTab !== "orders" && <PageHeader eyebrow="Commerce" title={resolvedActiveTab === "coupons" ? "Offers" : "Products"} description={resolvedActiveTab === "coupons" ? "Manage checkout promotions." : "Manage the product catalog."} action={resolvedActiveTab === "products" && canManageProducts ? <button className="button button-primary" onClick={() => setCreateProductOpen(true)}><Package size={14} />Add product</button> : undefined} />}
-    <div className="commerce-tabs" role="tablist" aria-label="Commerce sections">
+  return <div className="page-wrap workspace-page product-workspace-page w-full min-w-0">
+    <PageHeader
+      eyebrow={resolvedActiveTab === "orders" ? "Commerce · Fulfilment & Payments" : "Commerce"}
+      title={resolvedActiveTab === "orders" ? "Orders & Payments" : resolvedActiveTab === "coupons" ? "Offers" : "Products"}
+      description={resolvedActiveTab === "orders" ? "Work through paid orders, shipping updates, customer refunds, and live Razorpay transactions." : resolvedActiveTab === "coupons" ? "Manage checkout promotions." : "Manage the product catalog."}
+      action={resolvedActiveTab === "products" && canManageProducts ? <button className="button button-primary" onClick={() => setCreateProductOpen(true)}><Package size={14} />Add product</button> : undefined}
+    />
+    <SlidingTabList activeKey={resolvedActiveTab} className="commerce-tabs" label="Commerce sections">
       {availableTabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={resolvedActiveTab === id} className={`commerce-tab ${resolvedActiveTab === id ? "selected" : ""}`} onClick={() => selectTab(id)}><Icon size={15} />{label}{id === "products" && <span>{products.length}</span>}</button>)}
-    </div>
-    <div className="commerce-content" aria-label={`${tabLabel} section`}>
+    </SlidingTabList>
+    <div key={resolvedActiveTab} className="commerce-content tab-panel-transition" aria-label={`${tabLabel} section`}>
       {availableTabs.length === 0 && <div className="empty-state">No commerce sections are available for this account.</div>}
       {resolvedActiveTab === "overview" && canViewCommerceReports && <CommerceOverview products={products} coupons={coupons} onNavigate={selectTab} />}
       {resolvedActiveTab === "products" && canManageProducts && <ProductsPanel products={products} onProductsChange={(updater) => { setProducts(updater); onAudit("updated product catalog", "Product records"); }} createProductOpen={createProductOpen} onCreateHandled={() => setCreateProductOpen(false)} onToast={onToast} onRefresh={refreshProducts} />}

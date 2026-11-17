@@ -105,8 +105,6 @@ export function SignIn({ onAuthenticated }: { onAuthenticated: (admin: AdminIden
             <span>•</span>
             <Link href="/terms" className="hover:text-[#1A365D] hover:underline">Terms</Link>
             <span>•</span>
-            <Link href="/delete-account" className="hover:text-[#1A365D] hover:underline">Data Deletion</Link>
-            <span>•</span>
             <Link href="/support" className="hover:text-[#1A365D] hover:underline">Support</Link>
           </div>
           <span>Version 2.0.0</span>
@@ -146,8 +144,6 @@ export function SignIn({ onAuthenticated }: { onAuthenticated: (admin: AdminIden
             <Link href="/privacy" className="hover:text-[#1A365D] hover:underline">Privacy</Link>
             <span>•</span>
             <Link href="/terms" className="hover:text-[#1A365D] hover:underline">Terms</Link>
-            <span>•</span>
-            <Link href="/delete-account" className="hover:text-[#1A365D] hover:underline">Delete Account</Link>
             <span>•</span>
             <Link href="/support" className="hover:text-[#1A365D] hover:underline">Support</Link>
           </div>

@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, Copy, CreditCard, DollarSign, ExternalLink, Filter, RefreshCw, Search, ShieldAlert, ShoppingBag, Stethoscope } from "lucide-react";
-import { Modal, PageHeader, StatusPill } from "../../shared/components/ui";
+import { Copy, CreditCard, DollarSign, RefreshCw, Search, ShoppingBag, Stethoscope } from "lucide-react";
+import { Modal, StatusPill } from "../../shared/components/ui";
 
 export interface PaymentItem {
   id: string;
@@ -198,7 +198,7 @@ export function ReceivedPaymentsPanel({ onToast }: { onToast: (message: string) 
           <select
             value={statusFilter}
             onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-            className="text-xs border border-slate-200 rounded-xl px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500"
+            className="text-xs border border-slate-200 rounded-xl px-3 py-2 bg-white text-slate-700"
           >
             <option value="all">All Statuses</option>
             <option value="paid">Paid</option>
@@ -215,7 +215,7 @@ export function ReceivedPaymentsPanel({ onToast }: { onToast: (message: string) 
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             placeholder="Search by ID, customer, txn…"
-            className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50/50"
+            className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-xl bg-slate-50/50"
           />
         </div>
       </div>

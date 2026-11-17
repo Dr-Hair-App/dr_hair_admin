@@ -93,7 +93,7 @@ export function AppointmentScheduleControl({ onToast, onAudit = () => {}, onUpda
       <span className="flex min-w-0 items-center gap-3"><span className="rounded-lg bg-teal-50 p-1.5 text-teal-700"><CalendarClock size={16} /></span><span><strong className="block text-sm text-slate-800">Clinic hours & booking window</strong><small className="mt-1 block text-xs text-slate-500">{loading ? "Loading schedule…" : schedule.is_configured ? "Patient calendar is using this saved schedule." : "Set clinic hours before accepting patient bookings."}</small></span></span>
       <span className="shrink-0 text-xs font-semibold text-teal-700">{schedule.is_configured ? "Edit schedule" : "Configure"}</span>
     </summary>
-    <div className="space-y-4 pt-4">
+    <div className="appointment-schedule-fields space-y-4 pt-4">
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="field">Clinic timezone (IANA name)<input required maxLength={80} value={schedule.timezone} onChange={(event) => update({ timezone: event.target.value })} placeholder="Asia/Kolkata" /></label>
         <label className="field">Booking window (days)<input type="number" min={1} max={365} value={schedule.booking_window_days ?? ""} onChange={(event) => update({ booking_window_days: Number(event.target.value) || null })} placeholder="Set number of days" /></label>
