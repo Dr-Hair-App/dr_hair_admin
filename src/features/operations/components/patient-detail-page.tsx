@@ -15,7 +15,7 @@ type Medication = { catalog_id?: string; name: string; category?: string; form?:
 type RoutineStep = { title: string; subtitle?: string; category?: string; time_of_day?: string };
 type DietMeal = { type: string; name: string; nutrients?: string; benefit?: string };
 type Treatment = { id: string | number; reference_no?: string; treatment_name: string; duration?: string; instructions?: string; doctor_name?: string; diagnosis?: string; stage?: string; next_review_date?: string; medications?: Medication[]; routine_steps?: RoutineStep[]; diet_meals?: DietMeal[]; date?: string };
-type Report = { id: string; title: string; file_name: string; mime_type: string; format: string; bytes: number; stored_bytes?: number; compressed?: boolean; uploaded_by?: string; visibility?: "Private" | "Shared"; shared_at?: string | null; deleted_at?: string | null; purge_after?: string | null; visibility_history?: { action?: "uploaded" | "shared" | "hidden" | "archived" | "restored"; visibility: "Private" | "Shared"; changed_by?: string; changed_at?: string | null; patient_consent_confirmed?: boolean }[]; created_at: string };
+type Report = { id: string; notification_delivery?: { inboxCreated?: boolean; pushSent?: number; pushFailed?: number; pushStatus?: "sent" | "failed" | "no_devices" | "unavailable" | "not_created" }; title: string; file_name: string; mime_type: string; format: string; bytes: number; stored_bytes?: number; compressed?: boolean; uploaded_by?: string; visibility?: "Private" | "Shared"; shared_at?: string | null; deleted_at?: string | null; purge_after?: string | null; visibility_history?: { action?: "uploaded" | "shared" | "hidden" | "archived" | "restored"; visibility: "Private" | "Shared"; changed_by?: string; changed_at?: string | null; patient_consent_confirmed?: boolean }[]; created_at: string };
 type PatientActivity = { id: string; type: string; title: string; summary?: string; actor?: string; occurred_at: string };
 type PatientAppointment = { id: string; starts_at: string; reason?: string; status: string; opd_token?: string };
 type ProgressCheckIn = { id: string; date: string; scalp_region?: string; shedding_level?: string; notes?: string; density_rating?: number; is_doctor_reviewed?: boolean; doctor_note?: string; photos?: { angle?: string; url?: string; file_name?: string; mime_type?: string; bytes?: number }[] };
@@ -119,6 +119,8 @@ export function PatientDetailPage({ patientId, role, onToast, onAudit, onBack }:
   const [savingCare, setSavingCare] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportTitle, setReportTitle] = useState("");
+  const [shareReportOnUpload, setShareReportOnUpload] = useState(false);
+  const [uploadConsentConfirmed, setUploadConsentConfirmed] = useState(false);
   const [reportFile, setReportFile] = useState<File | null>(null);
   const [uploadingReport, setUploadingReport] = useState(false);
   const [downloadingReport, setDownloadingReport] = useState<string | null>(null);
@@ -342,20 +344,39 @@ export function PatientDetailPage({ patientId, role, onToast, onAudit, onBack }:
     }
     setUploadingReport(true);
     try {
-      const body = new FormData(); body.set("title", reportTitle.trim()); body.set("file", reportFile);
+      const body = new FormData();
+      body.set("title", reportTitle.trim());
+      body.set("file", reportFile);
+      if (shareReportOnUpload) {
+        body.set("visibility", "Shared");
+        body.set("patient_consent_confirmed", "true");
+      }
       const response = await fetch(`/api/admin/users/${encodeURIComponent(patientId)}/reports`, { method: "POST", body, cache: "no-store" });
       const result: unknown = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(messageFrom(result, "Report upload failed."));
       const data = isRecord(result) && isRecord(result.data) ? result.data as unknown as Report : null;
       if (data) setDetails((current) => current ? { ...current, reports: [data, ...current.reports] } : current);
       setReportTitle(""); setReportFile(null);
+      setShareReportOnUpload(false); setUploadConsentConfirmed(false);
       setReportOpen(false);
       const input = document.getElementById("patient-report-file") as HTMLInputElement | null; if (input) input.value = "";
-      onAudit("uploaded private patient report", `Patient ${patientId}`);
+      onAudit("uploaded patient report", `Patient ${patientId}`);
       const saved = data?.compressed && data.bytes > 0 && data.stored_bytes && data.stored_bytes < data.bytes
         ? ` Lossless storage saved ${Math.round((1 - data.stored_bytes / data.bytes) * 100)}%.`
         : "";
-      onToast(`Report uploaded privately.${saved} Share it with the patient when it is ready.`);
+      const delivery = data?.notification_delivery;
+      const notificationMessage = delivery?.inboxCreated
+        ? delivery.pushStatus === "sent"
+          ? `In-app notification saved and push sent to ${delivery.pushSent} device${delivery.pushSent === 1 ? "" : "s"}.`
+          : delivery.pushStatus === "failed"
+            ? `In-app notification saved, but push delivery failed for ${delivery.pushFailed} device${delivery.pushFailed === 1 ? "" : "s"}.`
+            : delivery.pushStatus === "no_devices"
+              ? "In-app notification saved; no push-enabled device is registered."
+              : "In-app notification saved; push delivery status is unavailable."
+        : "Report shared, but its in-app notification could not be saved.";
+      onToast(shareReportOnUpload
+        ? `Report uploaded and shared. ${notificationMessage}${saved}`
+        : `Report uploaded privately.${saved} Share it with the patient when it is ready.`);
     } catch (cause) {
       onToast(cause instanceof Error ? cause.message : "Report upload failed.");
     } finally { setUploadingReport(false); }
@@ -615,7 +636,7 @@ export function PatientDetailPage({ patientId, role, onToast, onAudit, onBack }:
         </div>
         <div className="flex items-center gap-2">
           <span className="hidden rounded-full bg-[#F4F8FB] px-2.5 py-1 text-[10px] font-semibold text-slate-500 sm:inline-flex">{details.reports.length} files</span>
-          {canWrite && <button type="button" className="button button-secondary w-full sm:w-auto" onClick={() => { setReportTitle(""); setReportFile(null); setReportOpen(true); }}><UploadCloud size={15} />Upload report</button>}
+          {canWrite && <button type="button" className="button button-secondary w-full sm:w-auto" onClick={() => { setReportTitle(""); setReportFile(null); setShareReportOnUpload(false); setUploadConsentConfirmed(false); setReportOpen(true); }}><UploadCloud size={15} />Upload report</button>}
         </div>
       </div>
       {details.reports.length ? <div className="mt-5 space-y-3">{details.reports.map((report) => {
@@ -870,8 +891,10 @@ export function PatientDetailPage({ patientId, role, onToast, onAudit, onBack }:
       <button type="button" className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-teal-700 hover:text-teal-800" onClick={() => setCustomDietMeals((current) => [...current, { type: "Breakfast", name: "", nutrients: "", benefit: "" }])}><Plus size={14} />Add custom meal</button>
     </Modal>}
 
-    {reportOpen && <Modal title="Upload patient report" description="Keep the file private and linked to this patient record." submitLabel={uploadingReport ? "Uploading…" : "Upload private report"} submitDisabled={uploadingReport || !reportFile || !reportTitle.trim()} onClose={() => setReportOpen(false)} onSubmit={() => { void uploadReport(); }}>
+    {reportOpen && <Modal title="Upload patient report" description="The file and report name are sent together. It stays private unless you choose to share it now." submitLabel={uploadingReport ? "Uploading…" : shareReportOnUpload ? "Upload & notify patient" : "Upload private report"} submitDisabled={uploadingReport || !reportFile || !reportTitle.trim() || (shareReportOnUpload && !uploadConsentConfirmed)} onClose={() => { if (!uploadingReport) setReportOpen(false); }} onSubmit={() => { void uploadReport(); }}>
       <label className="block text-xs font-semibold text-slate-600">Report name<input autoFocus maxLength={160} value={reportTitle} onChange={(event) => setReportTitle(event.target.value)} placeholder="e.g. Blood test results" className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal" disabled={uploadingReport} /></label>
+      <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-xl border border-slate-200 bg-[#FAFBFD] p-3 text-xs leading-5 text-slate-700"><input type="checkbox" checked={shareReportOnUpload} onChange={(event) => { setShareReportOnUpload(event.target.checked); setUploadConsentConfirmed(false); }} className="mt-1 accent-teal-700" disabled={uploadingReport} /><span>Share with the patient and send an app notification after upload.</span></label>
+      {shareReportOnUpload && <label className="mt-2 flex cursor-pointer items-start gap-2 rounded-xl border border-teal-100 bg-teal-50/60 p-3 text-xs leading-5 text-teal-950"><input type="checkbox" checked={uploadConsentConfirmed} onChange={(event) => setUploadConsentConfirmed(event.target.checked)} className="mt-1 accent-teal-700" disabled={uploadingReport} /><span>I confirmed that this patient agrees to receive this report in their signed-in app.</span></label>}
       <label className="mt-4 flex cursor-pointer items-center gap-3 rounded-2xl border border-dashed border-slate-300 bg-[#FAFBFD] p-4 transition hover:border-teal-400"><input id="patient-report-file" type="file" accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,image/jpeg,image/png,image/webp,image/gif,image/avif,image/heic,image/heif" className="sr-only" disabled={uploadingReport} onChange={(event) => { const selected = event.target.files?.[0] ?? null; if (selected && selected.size > 25 * 1024 * 1024) { setReportFile(null); onToast("Choose a file smaller than 25 MiB."); event.target.value = ""; return; } setReportFile(selected); }} /><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white text-teal-700 shadow-sm"><UploadCloud size={19} /></span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold text-slate-700">{reportFile?.name || "Choose a report file"}</span><span className="mt-1 block text-[10px] text-slate-400">PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, TXT, or images · up to 25 MiB</span></span>{reportFile && <button type="button" className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-white hover:text-slate-700" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setReportFile(null); const input = document.getElementById("patient-report-file") as HTMLInputElement | null; if (input) input.value = ""; }} aria-label="Remove selected file"><X size={15} /></button>}</label>
     </Modal>}
 

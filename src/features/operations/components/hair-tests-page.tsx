@@ -66,6 +66,8 @@ export function HairTestsPage({
   const [testDate, setTestDate] = useState(new Date().toISOString().slice(0, 10));
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [shareOnUpload, setShareOnUpload] = useState(false);
+  const [uploadConsentConfirmed, setUploadConsentConfirmed] = useState(false);
 
   const [reportToConfirmVisibility, setReportToConfirmVisibility] = useState<{
     record: HairTestRecord;
@@ -174,7 +176,7 @@ export function HairTestsPage({
     event.preventDefault();
     if (!canUpload || uploading) return;
     const patient = patientsList.find((item) => item.id === patientId);
-    if (!patient || !testName.trim() || !file) {
+    if (!patient || !testName.trim() || !file || (shareOnUpload && !uploadConsentConfirmed)) {
       onToast("Choose a patient, test name, date, and result file.");
       return;
     }
@@ -184,6 +186,10 @@ export function HairTestsPage({
       const formData = new FormData();
       formData.append("file", file);
       formData.append("title", testName.trim());
+      if (shareOnUpload) {
+        formData.append("visibility", "Shared");
+        formData.append("patient_consent_confirmed", "true");
+      }
 
       const res = await fetch(`/api/admin/users/${encodeURIComponent(patient.id)}/reports`, {
         method: "POST",
@@ -202,20 +208,34 @@ export function HairTestsPage({
           fileName: String(r.file_name || file.name),
           fileType: String(r.mime_type || file.type || "application/pdf"),
           fileSize: Number(r.bytes) || file.size,
-          status: "Private",
+          status: r.visibility === "Shared" ? "Shared" : "Private",
           createdAt: new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" }).format(new Date()),
           uploadedBy: actor,
           recordKind: "report",
         };
         setRecords((current) => [newRecord, ...current]);
         setFile(null);
+        setShareOnUpload(false);
+        setUploadConsentConfirmed(false);
         event.currentTarget.reset();
-        onAudit("uploaded private patient report", `${patient.id} · ${newRecord.testName}`);
+        onAudit("uploaded patient report", `${patient.id} · ${newRecord.testName}`);
         const storedBytes = Number(r.stored_bytes);
         const saved = r.compressed === true && storedBytes > 0 && storedBytes < file.size
           ? ` Lossless storage saved ${Math.round((1 - storedBytes / file.size) * 100)}%.`
           : "";
-        onToast(`Clinical report uploaded privately.${saved} Share with patient when ready.`);
+        const delivery = r.notification_delivery || {};
+        const notificationMessage = delivery.inboxCreated
+          ? delivery.pushStatus === "sent"
+            ? `In-app notification saved and push sent to ${delivery.pushSent} device${delivery.pushSent === 1 ? "" : "s"}.`
+            : delivery.pushStatus === "failed"
+              ? `In-app notification saved, but push delivery failed for ${delivery.pushFailed} device${delivery.pushFailed === 1 ? "" : "s"}.`
+              : delivery.pushStatus === "no_devices"
+                ? "In-app notification saved; no push-enabled device is registered."
+                : "In-app notification saved; push delivery status is unavailable."
+          : "Report shared, but its in-app notification could not be saved.";
+        onToast(shareOnUpload
+          ? `Clinical report uploaded and shared. ${notificationMessage}${saved}`
+          : `Clinical report uploaded privately.${saved} Share with patient when ready.`);
       } else {
         const err = await res.json().catch(() => ({}));
         onToast(err.message || "Failed to upload report.");
@@ -348,13 +368,15 @@ export function HairTestsPage({
                 }}
                 required
               />
-              <small>{file ? `${file.name} · ${(file.size / 1024 / 1024).toFixed(1)} MiB` : "File is saved privately in its original format."}</small>
+              <small>{file ? `${file.name} · ${(file.size / 1024 / 1024).toFixed(1)} MiB` : "File is private by default. Eligible small reports are losslessly compressed only when the stored result is smaller."}</small>
             </label>
           </div>
+          <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-xl border border-slate-200 bg-[#FAFBFD] p-3 text-xs leading-5 text-slate-700"><input type="checkbox" checked={shareOnUpload} onChange={(event) => { setShareOnUpload(event.target.checked); setUploadConsentConfirmed(false); }} className="mt-1 accent-teal-700" disabled={uploading} /><span>Share with the selected patient and send an app notification after upload.</span></label>
+          {shareOnUpload && <label className="mt-2 flex cursor-pointer items-start gap-2 rounded-xl border border-teal-100 bg-teal-50/60 p-3 text-xs leading-5 text-teal-950"><input type="checkbox" checked={uploadConsentConfirmed} onChange={(event) => setUploadConsentConfirmed(event.target.checked)} className="mt-1 accent-teal-700" disabled={uploading} /><span>I confirmed this patient agrees to receive the report in their signed-in app.</span></label>}
           <div className="hair-test-form-actions">
-            <button className="button button-primary" type="submit" disabled={uploading}>
+            <button className="button button-primary" type="submit" disabled={uploading || (shareOnUpload && !uploadConsentConfirmed)}>
               {uploading ? <Loader2 size={14} className="animate-spin" /> : <FileUp size={14} />}
-              {uploading ? "Uploading..." : "Add test record"}
+              {uploading ? "Uploading..." : shareOnUpload ? "Upload & notify patient" : "Add test record"}
             </button>
           </div>
         </form>

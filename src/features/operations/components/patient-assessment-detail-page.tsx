@@ -159,7 +159,9 @@ export function PatientAssessmentDetailPage({
           signal: controller.signal,
         });
         if (hairTestRes.ok) {
-          const hairTestData = await hairTestRes.json().catch(() => ({}));
+          const hairTestData = (await hairTestRes.json().catch(() => ({}))) as {
+            data?: { assessment?: Assessment; patient?: PatientInfo };
+          };
           const test = hairTestData?.data?.assessment;
           if (test && isSubscribed) {
             setAssessment(test);
@@ -180,7 +182,10 @@ export function PatientAssessmentDetailPage({
           cache: "no-store",
           signal: controller.signal,
         });
-        const userResult = await userRes.json().catch(() => ({}));
+        const userResult = (await userRes.json().catch(() => ({}))) as {
+          message?: string;
+          data?: { patient?: PatientInfo; assessments?: Assessment[] };
+        };
         if (!userRes.ok) throw new Error(userResult?.message || "Could not load this patient record.");
         const data = userResult?.data;
         if (data?.patient) setPatient(data.patient as PatientInfo);
@@ -318,7 +323,7 @@ export function PatientAssessmentDetailPage({
         body: JSON.stringify({ status: nextStatus, note: reason.trim() }),
         cache: "no-store",
       });
-      const result = await response.json().catch(() => ({}));
+      const result = (await response.json().catch(() => ({}))) as { message?: string };
       if (!response.ok) throw new Error(result?.message || "Assessment status could not be changed.");
       setAssessment((current) => (current ? { ...current, status: nextStatus } : current));
       onAudit(
