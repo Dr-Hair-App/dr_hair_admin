@@ -30,8 +30,38 @@ export function HairTestsPage({
 }) {
   const router = useRouter();
   const [records, setRecords] = useState<HairTestRecord[]>([]);
+  const [patientsList, setPatientsList] = useState<PatientRecord[]>(patients);
   const [query, setQuery] = useState("");
   const [patientId, setPatientId] = useState(patients[0]?.id ?? "");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/admin/users?page=1&limit=100", { cache: "no-store", signal: controller.signal })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((result) => {
+        const items = result?.data?.items;
+        if (Array.isArray(items) && items.length > 0) {
+          const live: PatientRecord[] = items.map((u: Record<string, unknown>) => {
+            const name = String(u.name || "Unnamed patient");
+            return {
+              id: String(u.id ?? ""),
+              patientCode: typeof u.patient_code === "string" ? u.patient_code : undefined,
+              name,
+              initials: name.split(/\s+/).map((part) => part[0] || "").join("").slice(0, 2).toUpperCase(),
+              email: String(u.email || ""),
+              phone: String(u.phone || ""),
+              assessment: "",
+              submitted: "",
+              status: "Active",
+            };
+          });
+          setPatientsList(live);
+          setPatientId((curr) => (curr && live.some((p) => p.id === curr) ? curr : live[0]?.id || ""));
+        }
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
   const [testName, setTestName] = useState("Scalp analysis");
   const [testDate, setTestDate] = useState(new Date().toISOString().slice(0, 10));
   const [file, setFile] = useState<File | null>(null);
@@ -67,7 +97,7 @@ export function HairTestsPage({
       if (Array.isArray(rawTests) && rawTests.length > 0) {
         rawTests.forEach((t: Record<string, unknown>) => {
           if (String(t.status || "").toLowerCase() === "archived") return;
-          const patient = patients.find((p) => String(p.id) === String(t.userId));
+          const patient = patientsList.find((p) => String(p.id) === String(t.userId));
           const stage = String(t.hair_loss_stage || t.stage || t.main_concern || "Scalp screening");
           const photoCount = Array.isArray(t.scalp_photos) ? t.scalp_photos.length : 0;
           const status = String(t.status || "submitted").toLowerCase();
@@ -92,7 +122,7 @@ export function HairTestsPage({
       const reportItems = reportsRes?.data?.reports;
       if (Array.isArray(reportItems) && reportItems.length > 0) {
         reportItems.forEach((r: Record<string, unknown>) => {
-          const patient = patients.find((p) => String(p.id) === String(r.userId));
+          const patient = patientsList.find((p) => String(p.id) === String(r.userId));
           combined.push({
             id: String(r.id),
             patientId: String(r.userId),
@@ -114,7 +144,7 @@ export function HairTestsPage({
     } catch {
       // Keep previous records on fetch error
     }
-  }, [patients, actor]);
+  }, [patientsList, actor]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -131,7 +161,7 @@ export function HairTestsPage({
   const addFile = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canUpload || uploading) return;
-    const patient = patients.find((item) => item.id === patientId);
+    const patient = patientsList.find((item) => item.id === patientId);
     if (!patient || !testName.trim() || !file) {
       onToast("Choose a patient, test name, date, and result file.");
       return;
@@ -277,8 +307,8 @@ export function HairTestsPage({
             <label className="field">
               <span>Patient</span>
               <select value={patientId} onChange={(event) => setPatientId(event.target.value)} required>
-                {patients.map((patient) => (
-                  <option key={patient.id} value={patient.id}>{patient.name} · {patient.id}</option>
+                {patientsList.map((patient) => (
+                  <option key={patient.id} value={patient.id}>{patient.name} · {patient.patientCode || patient.id}</option>
                 ))}
               </select>
             </label>

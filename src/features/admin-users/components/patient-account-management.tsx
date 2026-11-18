@@ -480,12 +480,11 @@ export function PatientAccountManagement({
               : "Suspending this user account immediately invalidates their active app sessions and prevents further logins."
           }
           submitLabel={
-            isSubmittingBlock
-              ? "Saving..."
-              : blockModalUser.is_blocked || blockModalUser.status === "blocked"
+            blockModalUser.is_blocked || blockModalUser.status === "blocked"
               ? "Confirm & Unblock Account"
               : "Confirm & Block Account"
           }
+          submitLoading={isSubmittingBlock}
           submitVariant={blockModalUser.is_blocked || blockModalUser.status === "blocked" ? "primary" : "danger"}
           submitDisabled={isSubmittingBlock}
           onClose={() => setBlockModalUser(null)}
@@ -505,11 +504,12 @@ export function PatientAccountManagement({
             )}
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
+              <label htmlFor="block-reason-input" className="block text-xs font-semibold text-slate-700 mb-1">
                 Reason for {blockModalUser.is_blocked || blockModalUser.status === "blocked" ? "unblocking" : "suspension"} (optional audit trail):
               </label>
               <textarea
-                className="w-full rounded-xl border border-slate-200 p-2.5 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1A365D]"
+                id="block-reason-input"
+                className="w-full rounded-xl border border-slate-200 p-2.5 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-600 focus:border-teal-600"
                 rows={3}
                 placeholder="e.g., Requested consultation pause, suspicious activity, or identity review..."
                 value={blockReason}
@@ -525,7 +525,8 @@ export function PatientAccountManagement({
         <Modal
           title={`Permanently Delete Patient: ${deleteModalUser.name}`}
           description="Are you sure you want to delete this patient account from the database?"
-          submitLabel={isSubmittingDelete ? "Deleting..." : "Permanently Delete Account"}
+          submitLabel="Permanently Delete Account"
+          submitLoading={isSubmittingDelete}
           submitVariant="danger"
           submitDisabled={isSubmittingDelete}
           onClose={() => setDeleteModalUser(null)}

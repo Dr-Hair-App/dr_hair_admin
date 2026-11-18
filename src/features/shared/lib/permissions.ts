@@ -55,6 +55,6 @@ export function canAccessPage(role: Role, page: PageKey, panelAccess?: PanelFeat
 
 export function visibleNavigation(role: Role, panelAccess?: PanelFeatureAccess, permissions?: AdminPermissionId[]) {
   return navigationItems
-    .filter((item) => item.key !== "patients" && item.key !== "tests")
+    .filter((item) => item.key !== "patients")
     .filter((item) => canAccessPage(role, item.key, panelAccess, permissions));
 }

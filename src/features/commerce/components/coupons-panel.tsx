@@ -16,6 +16,8 @@ export function CouponsPanel({ coupons, products, onCouponsChange, onToast }: { 
   const [maxUses, setMaxUses] = useState("250");
   const [expiresOn, setExpiresOn] = useState("2026-12-31");
   const [couponToRemove, setCouponToRemove] = useState<CouponRecord | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const activeCoupons = coupons.filter((coupon) => coupon.status === "Active").length;
   const redemptions = coupons.reduce((sum, coupon) => sum + coupon.uses, 0);
   const reset = () => { setCode(makeCode()); setDiscountType("percent"); setDiscountValue("15"); setAppliesTo("All products"); setMinimumOrder("999"); setMaxUses("250"); setExpiresOn("2026-12-31"); };
@@ -39,6 +41,7 @@ export function CouponsPanel({ coupons, products, onCouponsChange, onToast }: { 
       status: expiresOn && expiresOn < today ? "Expired" : "Active"
     };
 
+    setIsSubmitting(true);
     try {
       const res = await fetch("/api/admin/coupons", {
         method: "POST",
@@ -57,6 +60,8 @@ export function CouponsPanel({ coupons, products, onCouponsChange, onToast }: { 
       onToast(error.message || "Could not create coupon. Please try again.");
     } catch {
       onToast("Coupon service is unavailable. Please try again.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -77,6 +82,7 @@ export function CouponsPanel({ coupons, products, onCouponsChange, onToast }: { 
   };
 
   const removeCoupon = async (coupon: CouponRecord) => {
+    setIsDeleting(true);
     try {
       const res = await fetch(`/api/admin/coupons/${coupon.id}`, {
         method: "DELETE",
@@ -87,6 +93,8 @@ export function CouponsPanel({ coupons, products, onCouponsChange, onToast }: { 
       setCouponToRemove(null);
     } catch {
       onToast("Could not remove coupon.");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -108,7 +116,7 @@ export function CouponsPanel({ coupons, products, onCouponsChange, onToast }: { 
       </tr>)}{coupons.length === 0 && <tr><td colSpan={8}><div className="empty-state">No offers yet. Generate a coupon for your store.</div></td></tr>}</tbody></table></div>
       <div className="table-footer"><span>Live offer codes</span><span>Synced with checkout API</span></div>
     </section>
-    {open && <Modal title="Generate a coupon" description="Create a product offer with clear redemption rules." submitLabel="Create coupon" onClose={() => setOpen(false)} onSubmit={createCoupon}>
+    {open && <Modal title="Generate a coupon" description="Create a product offer with clear redemption rules." submitLabel="Create coupon" submitLoading={isSubmitting} submitDisabled={isSubmitting} onClose={() => setOpen(false)} onSubmit={createCoupon}>
       <div className="field"><label htmlFor="coupon-code">Coupon code</label><div className="code-input-row"><input id="coupon-code" value={code} onChange={(event) => setCode(event.target.value.toUpperCase().replace(/\s/g, ""))} /><button className="button button-secondary button-small" onClick={() => setCode(makeCode())}><WandSparkles size={13} />Generate</button></div></div>
       <div className="form-grid-two"><div className="field"><label htmlFor="coupon-type">Discount type</label><select id="coupon-type" value={discountType} onChange={(event) => setDiscountType(event.target.value as "percent" | "fixed")}><option value="percent">Percentage</option><option value="fixed">Fixed amount (₹)</option></select></div><div className="field"><label htmlFor="coupon-value">Discount {discountType === "percent" ? "(%)" : "(₹)"}</label><input id="coupon-value" type="number" min="1" max={discountType === "percent" ? "100" : undefined} value={discountValue} onChange={(event) => setDiscountValue(event.target.value)} /></div></div>
       <div className="field"><label htmlFor="coupon-scope">Apply to</label><select id="coupon-scope" value={appliesTo} onChange={(event) => setAppliesTo(event.target.value)}><option>All products</option><option>First order</option>{products.map((product) => <option key={product.id}>{product.name}</option>)}</select></div>
@@ -116,7 +124,7 @@ export function CouponsPanel({ coupons, products, onCouponsChange, onToast }: { 
       <div className="field"><label htmlFor="coupon-expiry">Valid through</label><input id="coupon-expiry" type="date" value={expiresOn} onChange={(event) => setExpiresOn(event.target.value)} /></div>
       <div className="offer-preview"><TicketPercent size={16} /><span><strong>{code || "YOURCODE"}</strong><small>{discountValue || "0"}{discountType === "percent" ? "% off" : " rupees off"} · {appliesTo}</small></span></div>
     </Modal>}
-    {couponToRemove && <Modal title="Delete this coupon?" description="This removes the offer from the store. Confirm only if it should no longer be available." submitLabel="Delete coupon" submitVariant="danger" onClose={() => setCouponToRemove(null)} onSubmit={() => removeCoupon(couponToRemove)}>
+    {couponToRemove && <Modal title="Delete this coupon?" description="This removes the offer from the store. Confirm only if it should no longer be available." submitLabel="Delete coupon" submitVariant="danger" submitLoading={isDeleting} submitDisabled={isDeleting} onClose={() => setCouponToRemove(null)} onSubmit={() => removeCoupon(couponToRemove)}>
       <div className="rounded-xl border border-rose-200 bg-rose-50/70 p-3 text-xs text-rose-900"><p className="font-semibold">{couponToRemove.code}</p><p className="mt-1 leading-5">This removal will prevent customers from applying this coupon at checkout.</p></div>
     </Modal>}
   </>;

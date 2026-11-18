@@ -129,9 +129,23 @@ export function SignIn({ onAuthenticated }: { onAuthenticated: (admin: AdminIden
 
             {error && <p className="signin-error" role="alert">{error}</p>}
 
-            <button disabled={busy} type="submit" className="button button-primary signin-submit disabled:opacity-60">
-              <span>{busy ? "Signing in…" : "Sign in to workspace"}</span>
-              {!busy && <ArrowRight size={15} />}
+            <button
+              disabled={busy}
+              type="submit"
+              className={`button button-primary signin-submit ${busy ? "is-loading" : ""}`}
+              aria-busy={busy ? "true" : undefined}
+            >
+              {busy ? (
+                <span className="flex items-center justify-center gap-2 w-full">
+                  <span className="button-spinner" aria-hidden="true" />
+                  <span>Signing in…</span>
+                </span>
+              ) : (
+                <>
+                  <span>Sign in to workspace</span>
+                  <ArrowRight size={15} />
+                </>
+              )}
             </button>
           </form>
 

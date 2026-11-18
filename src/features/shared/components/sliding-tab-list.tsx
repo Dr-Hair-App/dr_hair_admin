@@ -9,8 +9,8 @@ type SlidingTabListProps = HTMLAttributes<HTMLDivElement> & {
   indicatorVariant?: "pill" | "underline";
 };
 
-/** A measured, accessible tab list with a single animated selection pill. */
-export function SlidingTabList({ activeKey, label, children, className = "", indicatorVariant = "pill", ...props }: SlidingTabListProps) {
+/** A measured, accessible tab list with a single animated selection pill and keyboard navigation. */
+export function SlidingTabList({ activeKey, label, children, className = "", indicatorVariant = "pill", onKeyDown, ...props }: SlidingTabListProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const [indicator, setIndicator] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
 
@@ -50,8 +50,42 @@ export function SlidingTabList({ activeKey, label, children, className = "", ind
     };
   }, [activeKey, children, indicatorVariant]);
 
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    onKeyDown?.(event);
+    if (!listRef.current) return;
+    const tabs = Array.from(listRef.current.querySelectorAll<HTMLElement>('[role="tab"]:not([disabled])'));
+    if (tabs.length === 0) return;
+    const currentIndex = tabs.findIndex((tab) => tab === document.activeElement);
+    if (currentIndex === -1) return;
+
+    let targetIndex = -1;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      targetIndex = (currentIndex + 1) % tabs.length;
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      targetIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+    } else if (event.key === "Home") {
+      targetIndex = 0;
+    } else if (event.key === "End") {
+      targetIndex = tabs.length - 1;
+    }
+
+    if (targetIndex !== -1) {
+      event.preventDefault();
+      const target = tabs[targetIndex];
+      target.focus();
+      target.click();
+    }
+  };
+
   return (
-    <div {...props} ref={listRef} role="tablist" aria-label={label} className={`sliding-tabs ${className}`.trim()}>
+    <div
+      {...props}
+      ref={listRef}
+      role="tablist"
+      aria-label={label}
+      onKeyDown={handleKeyDown}
+      className={`sliding-tabs ${className}`.trim()}
+    >
       <span
         aria-hidden="true"
         className={`sliding-tab-indicator${indicatorVariant === "underline" ? " is-underline" : ""}${indicator ? " is-ready" : ""}`}

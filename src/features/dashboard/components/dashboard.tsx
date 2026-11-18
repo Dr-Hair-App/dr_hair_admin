@@ -19,7 +19,7 @@ import {
   X,
 } from "lucide-react";
 import { createPortal } from "react-dom";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { StatusPill } from "../../shared/components/ui";
 import type { AdminRecord, AuditEventRecord, PageKey, Role } from "../../shared/types";
 import type { BookingRecord } from "../../shared/types";
@@ -775,7 +775,7 @@ function RegisteredPatients({ patients, totalCount, loadState, onOpenPatient }: 
           </div>
           {loadState === "ready" && (
             <span className="rounded-full bg-slate-100 border border-slate-200 px-3 py-1 text-xs font-bold text-[#1A365D]">
-              {totalCount} {totalCount === 1 ? "registered" : "registered"}
+              {totalCount} {totalCount === 1 ? "patient" : "patients"}
             </span>
           )}
         </div>
@@ -895,13 +895,30 @@ function AppointmentDetailsDialog({ booking, patient, onClose, onOpenPatient, on
   onAdvance: () => void;
   onManage: () => void;
 }) {
+  const [isClosing, setIsClosing] = useState(false);
+  const closingRef = useRef(false);
+
+  const requestClose = () => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    setIsClosing(true);
+    const prefersReducedMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (prefersReducedMotion) {
+      onClose();
+    } else {
+      window.setTimeout(() => {
+        onClose();
+      }, 160);
+    }
+  };
+
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") requestClose();
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
+  }, []);
 
   const appointmentDateValue = appointmentDate(booking);
   const action = nextAppointmentAction(booking);
@@ -919,15 +936,15 @@ function AppointmentDetailsDialog({ booking, patient, onClose, onOpenPatient, on
   ] as const;
 
   if (typeof document === "undefined") return null;
-  return createPortal(<div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className="modal max-w-xl overflow-y-auto" style={{ maxHeight: "calc(100dvh - 40px)" }} role="dialog" aria-modal="true" aria-labelledby="appointment-detail-title">
+  return createPortal(<div className={`modal-backdrop ${isClosing ? "is-closing" : ""}`} onMouseDown={(event) => { if (event.target === event.currentTarget) requestClose(); }}>
+    <section className={`modal max-w-xl overflow-y-auto ${isClosing ? "is-closing" : ""}`} style={{ maxHeight: "calc(100dvh - 40px)" }} role="dialog" aria-modal="true" aria-labelledby="appointment-detail-title">
       <div className="modal-head">
         <div>
           <span className="eyebrow">Appointment details</span>
           <h2 id="appointment-detail-title">{booking.customer}</h2>
           <p>{booking.service}</p>
         </div>
-        <button type="button" className="row-action" aria-label="Close appointment details" onClick={onClose}><X size={17} /></button>
+        <button type="button" className="row-action" aria-label="Close appointment details" onClick={requestClose}><X size={17} /></button>
       </div>
       <div className="modal-body">
         <div className="flex items-center justify-between gap-3 rounded-xl bg-[#F7F9FC] p-3">

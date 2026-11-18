@@ -71,7 +71,8 @@ export function AdminApplication({ initialPage = "overview", initialPatientId = 
   const closePatient = useCallback(() => {
     setSelectedPatientId(null);
     setSelectedAssessmentRef(null);
-    setPage("patients");
+    setPage("overview");
+    setDashboardAnchor("registered-patients");
     window.history.pushState(null, "", "/overview#registered-patients");
   }, []);
 
@@ -92,8 +93,8 @@ export function AdminApplication({ initialPage = "overview", initialPatientId = 
       const resolvedPage = (queryPanel && validKeys.includes(queryPanel))
         ? queryPanel
         : (pathSegment && validKeys.includes(pathSegment))
-        ? pathSegment
-        : "overview";
+          ? pathSegment
+          : "overview";
       setPage(resolvedPage);
       setSelectedPatientId(null);
       setSelectedAssessmentRef(null);
@@ -112,7 +113,8 @@ export function AdminApplication({ initialPage = "overview", initialPatientId = 
           setAuth({ status: "signed-out" });
           return;
         }
-        const result = await response.json().catch(() => ({}));
+        const rawResult: unknown = await response.json().catch(() => ({}));
+        const result = (rawResult && typeof rawResult === "object" ? rawResult : {}) as Record<string, any>;
         const admin = result?.admin as AdminIdentity | undefined;
         if (!result?.authenticated || !admin?.email || !["admin", "super_admin"].includes(admin.role)) {
           setAuth({ status: "signed-out" });
@@ -132,7 +134,8 @@ export function AdminApplication({ initialPage = "overview", initialPatientId = 
     const controller = new AbortController();
     fetch("/api/admin/features?platform=admin", { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
-        const payload = await response.json().catch(() => ({}));
+        const rawPayload: unknown = await response.json().catch(() => ({}));
+        const payload = (rawPayload && typeof rawPayload === "object" ? rawPayload : {}) as Record<string, any>;
         if (!response.ok) throw new Error(payload?.message || "Could not load admin module settings.");
         const items = Array.isArray(payload?.data?.items) ? payload.data.items : [];
         const values = Object.fromEntries(items
@@ -175,8 +178,8 @@ export function AdminApplication({ initialPage = "overview", initialPatientId = 
     const targetUrl = nextPage === "overview"
       ? "/"
       : selectedDate
-      ? `/${nextPage}?date=${encodeURIComponent(selectedDate)}`
-      : `/${nextPage}`;
+        ? `/${nextPage}?date=${encodeURIComponent(selectedDate)}`
+        : `/${nextPage}`;
     window.history.pushState(null, "", targetUrl);
   }, [panelAccess, permissions, role, showToast]);
 
@@ -190,8 +193,8 @@ export function AdminApplication({ initialPage = "overview", initialPatientId = 
       case "patients": return selectedAssessmentRef && selectedPatientId
         ? <PatientAssessmentDetailPage key={`${selectedPatientId}:${selectedAssessmentRef}`} patientId={selectedPatientId} referenceNo={selectedAssessmentRef} permissions={permissions} onToast={showToast} onAudit={recordAudit} onBack={closePatient} />
         : selectedPatientId
-        ? <PatientDetailPage key={selectedPatientId} patientId={selectedPatientId} role={role} onToast={showToast} onAudit={recordAudit} onBack={closePatient} />
-        : <OperationsPage kind="patients" globalSearch={globalSearch} onToast={showToast} permissions={permissions} onAudit={recordAudit} onOpenPatient={openPatient} />;
+          ? <PatientDetailPage key={selectedPatientId} patientId={selectedPatientId} role={role} onToast={showToast} onAudit={recordAudit} onBack={closePatient} />
+          : <OperationsPage kind="patients" globalSearch={globalSearch} onToast={showToast} permissions={permissions} onAudit={recordAudit} onOpenPatient={openPatient} />;
       case "catalog": return <ProductManagement onToast={showToast} permissions={permissions} panelAccess={panelAccess} globalSearch={globalSearch} onAudit={recordAudit} />;
       case "content": return <AppManagement role={role} onToast={showToast} permissions={permissions} onAudit={recordAudit} features={features} onFeaturesChange={setFeatures} panelAccess={panelAccess} onPanelAccessChange={changePanelAccess} />;
       case "orders": return <OperationsPage kind="orders" globalSearch={globalSearch} onToast={showToast} permissions={permissions} onAudit={recordAudit} />;
@@ -213,7 +216,7 @@ export function AdminApplication({ initialPage = "overview", initialPatientId = 
   }} />;
 
   return <>
-    <AdminShell role={role} page={page} showSearch={!initialPatientId} headerTitle={initialAssessmentRef ? "Assessment detail" : initialPatientId ? "Patient record" : undefined} headerSubtitle={initialAssessmentRef ? `${initialAssessmentRef} · Patient ${initialPatientId}` : initialPatientId ? `Patient ID ${initialPatientId} · Clinical care` : undefined} onHeaderBack={initialAssessmentRef && initialPatientId ? () => router.push(`/patients/${encodeURIComponent(initialPatientId)}`) : initialPatientId ? () => router.push("/patients") : undefined} globalSearch={globalSearch} panelAccess={panelAccess} permissions={permissions} isOwner={isOwner} userName={visibleName} onRoleChange={() => {}} onPageChange={navigate} onSearchChange={setGlobalSearch} onSignOut={() => { void fetch("/api/auth/logout", { method: "POST" }); setAuth({ status: "signed-out" }); setPage("overview"); setGlobalSearch(""); }}>
+    <AdminShell role={role} page={page} showSearch={!initialPatientId} headerTitle={initialAssessmentRef ? "Assessment detail" : initialPatientId ? "Patient record" : undefined} headerSubtitle={initialAssessmentRef ? `${initialAssessmentRef} · Patient ${initialPatientId}` : initialPatientId ? `Patient ID ${initialPatientId} · Clinical care` : undefined} onHeaderBack={initialAssessmentRef && initialPatientId ? () => router.push(`/patients/${encodeURIComponent(initialPatientId)}`) : initialPatientId ? () => router.push("/patients") : undefined} globalSearch={globalSearch} panelAccess={panelAccess} permissions={permissions} isOwner={isOwner} userName={visibleName} onRoleChange={() => { }} onPageChange={navigate} onSearchChange={setGlobalSearch} onSignOut={() => { void fetch("/api/auth/logout", { method: "POST" }); setAuth({ status: "signed-out" }); setPage("overview"); setGlobalSearch(""); }}>
       <PanelScreen page={page}>{content}</PanelScreen>
     </AdminShell>
     {toast && <Toast message={toast} onClose={closeToast} />}

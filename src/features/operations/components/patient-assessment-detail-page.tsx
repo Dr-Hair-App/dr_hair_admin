@@ -39,12 +39,13 @@ const readable = (value: unknown): string => {
   return String(value);
 };
 
-export function PatientAssessmentDetailPage({ patientId, referenceNo, permissions, onToast, onAudit }: {
+export function PatientAssessmentDetailPage({ patientId, referenceNo, permissions, onToast, onAudit, onBack }: {
   patientId: string;
   referenceNo: string;
   permissions: AdminPermissionId[];
   onToast: (message: string) => void;
   onAudit: (action: string, target: string) => void;
+  onBack?: () => void;
 }) {
   const router = useRouter();
   const [assessment, setAssessment] = useState<Assessment | null>(null);
@@ -108,12 +109,12 @@ export function PatientAssessmentDetailPage({ patientId, referenceNo, permission
   };
 
   if (loadState === "loading") return <main className="page-wrap flex min-h-64 items-center justify-center gap-3 text-sm text-slate-500"><LoaderCircle className="animate-spin" size={18} />Loading assessment…</main>;
-  if (loadState === "error" || !assessment) return <main className="page-wrap"><section className="card border border-rose-200 bg-rose-50 p-5 text-sm text-rose-800">Assessment could not be loaded. <button className="button button-secondary ml-2" onClick={() => router.push(`/patients/${encodeURIComponent(patientId)}`)}>Back to patient record</button></section></main>;
+  if (loadState === "error" || !assessment) return <main className="page-wrap"><section className="card border border-rose-200 bg-rose-50 p-5 text-sm text-rose-800">Assessment could not be loaded. <button className="button button-secondary ml-2" onClick={() => onBack ? onBack() : router.push(`/patients/${encodeURIComponent(patientId)}`)}>Back to patient record</button></section></main>;
 
   const archived = assessment.status === "archived";
   const aiStatus = String(assessment.ai_assessment_status || (assessment.ai_assessment ? "ready" : "not_available"));
   return <main className="page-wrap w-full min-w-0 space-y-5">
-    <button className="button button-secondary" onClick={() => router.push(`/patients/${encodeURIComponent(patientId)}`)}><ArrowLeft size={15} />Back to patient history</button>
+    <button className="button button-secondary" onClick={() => onBack ? onBack() : router.push(`/patients/${encodeURIComponent(patientId)}`)}><ArrowLeft size={15} />Back to patient history</button>
     <section className="card space-y-5">
       <header className="flex flex-col gap-3 border-b border-slate-100 pb-5 sm:flex-row sm:items-start sm:justify-between">
         <div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Uploaded patient assessment</p><h1 className="mt-1 text-xl font-extrabold text-[#1A365D]">{patientName}</h1><p className="mt-1 font-mono text-sm text-slate-600">{referenceNo} · {assessment.created_at ? new Date(assessment.created_at).toLocaleString("en-IN") : "Submission date unavailable"}</p></div>

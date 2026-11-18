@@ -10,6 +10,7 @@ import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 import { HeaderSearch } from "./header-search";
 import { MobileAdminNavigation } from "./mobile-admin-navigation";
+import { Modal } from "./ui";
 import { visibleNavigation, type PanelFeatureAccess } from "../lib/permissions";
 import type { AdminPermissionId, PageKey, Role } from "../types";
 
@@ -360,82 +361,70 @@ export function AdminShell({
       {/* 5. WORKSPACE SETTINGS MODAL                                          */}
       {/* ==================================================================== */}
       {settingsModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white rounded-[28px] max-w-md w-full p-6 shadow-2xl border border-slate-100 flex flex-col gap-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-[#1A365D]">
-                  <Settings size={18} />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-[#1A365D]">Dr. Hair Workspace</h3>
-                  <p className="text-xs text-slate-500">Session preferences & system status</p>
+        <Modal
+          title={
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-[#1A365D]">
+                <Settings size={18} />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-[#1A365D]">Dr. Hair Workspace</h2>
+                <p className="text-xs text-slate-500">Session preferences &amp; system status</p>
+              </div>
+            </div>
+          }
+          onClose={() => setSettingsModalOpen(false)}
+          onSubmit={() => setSettingsModalOpen(false)}
+          submitLabel="Done"
+          hideCancel={true}
+          className="max-w-md"
+        >
+          <div className="space-y-3 py-1 text-xs text-slate-600">
+            <div className="p-3.5 rounded-2xl bg-slate-50 flex items-center justify-between">
+              <div>
+                <div className="font-semibold text-[#1A365D]">{userName}</div>
+                <div className="text-slate-500 text-[11px] capitalize">
+                  {role.replace("-", " ")}
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setSettingsModalOpen(false)}
-                className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 hover:text-black flex items-center justify-center"
+                onClick={onSignOut}
+                className="px-3 py-1.5 rounded-full bg-red-50 text-red-600 font-semibold text-[11px] hover:bg-red-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
               >
-                <X size={16} />
+                Sign out
               </button>
             </div>
 
-            <div className="space-y-3 py-1 text-xs text-slate-600">
-              <div className="p-3.5 rounded-2xl bg-slate-50 flex items-center justify-between">
-                <div>
-                  <div className="font-semibold text-[#1A365D]">{userName}</div>
-                  <div className="text-slate-500 text-[11px] capitalize">
-                    {role.replace("-", " ")}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={onSignOut}
-                  className="px-3 py-1.5 rounded-full bg-red-50 text-red-600 font-semibold text-[11px] hover:bg-red-100"
-                >
-                  Sign out
-                </button>
-              </div>
-
-              <div className="p-3.5 rounded-2xl bg-slate-50 flex items-center justify-between">
-                <div>
-                  <div className="font-semibold text-[#1A365D]">Backend API Endpoint</div>
-                  <div className="text-slate-500 text-[10px] truncate max-w-[220px]">
-                    Connected through deployment configuration
-                  </div>
-                </div>
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" title="Connected" />
-              </div>
-
-              <div className="p-3.5 rounded-2xl bg-slate-50 space-y-2">
-                <div className="text-[11px] font-bold text-[#1A365D]">Google Play &amp; App Store Links</div>
-                <div className="grid grid-cols-2 gap-1.5 text-[11px]">
-                  <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-[#0D9488] hover:underline font-semibold flex items-center gap-1">
-                    Privacy Policy ↗
-                  </a>
-                  <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-[#0D9488] hover:underline font-semibold flex items-center gap-1">
-                    Terms &amp; Conditions ↗
-                  </a>
-                  <a href="/delete-account" target="_blank" rel="noopener noreferrer" className="text-[#0D9488] hover:underline font-semibold flex items-center gap-1">
-                    Delete Account ↗
-                  </a>
-                  <a href="/support" target="_blank" rel="noopener noreferrer" className="text-[#0D9488] hover:underline font-semibold flex items-center gap-1">
-                    Support &amp; Contact ↗
-                  </a>
+            <div className="p-3.5 rounded-2xl bg-slate-50 flex items-center justify-between">
+              <div>
+                <div className="font-semibold text-[#1A365D]">Backend API Endpoint</div>
+                <div className="text-slate-500 text-[10px] truncate max-w-[220px]">
+                  Connected through deployment configuration
                 </div>
               </div>
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" title="Connected" />
             </div>
 
-            <button
-              type="button"
-              onClick={() => setSettingsModalOpen(false)}
-              className="w-full py-2.5 rounded-full bg-[#1A365D] text-white font-semibold text-xs hover:bg-[#152c4d] transition-all"
-            >
-              Done
-            </button>
+            <div className="p-3.5 rounded-2xl bg-slate-50 space-y-2">
+              <div className="text-[11px] font-bold text-[#1A365D]">Google Play &amp; App Store Links</div>
+              <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+                <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-[#0D9488] hover:underline font-semibold flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 rounded">
+                  Privacy Policy ↗
+                </a>
+                <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-[#0D9488] hover:underline font-semibold flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 rounded">
+                  Terms &amp; Conditions ↗
+                </a>
+                <a href="/delete-account" target="_blank" rel="noopener noreferrer" className="text-[#0D9488] hover:underline font-semibold flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 rounded">
+                  Delete Account ↗
+                </a>
+                <a href="/support" target="_blank" rel="noopener noreferrer" className="text-[#0D9488] hover:underline font-semibold flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 rounded">
+                  Support &amp; Contact ↗
+                </a>
+              </div>
+            </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

@@ -876,7 +876,8 @@ export function AdminAccountManagement() {
         <Modal
           title={`Edit Feature Access: ${editingAccessAccount.name}`}
           description={`Select role template and configure individual permissions for ${editingAccessAccount.email}.`}
-          submitLabel={savingAccess ? "Saving…" : "Save feature access"}
+          submitLabel="Save feature access"
+          submitLoading={savingAccess}
           submitDisabled={savingAccess}
           onClose={() => setEditingAccessAccount(null)}
           onSubmit={() => void saveEditedAccess()}
@@ -957,7 +958,8 @@ export function AdminAccountManagement() {
         <Modal
           title={`Reset Password: ${passwordTargetAccount.name}`}
           description={`Set a new login password for ${passwordTargetAccount.email}.`}
-          submitLabel={rotatingPassword ? "Updating…" : "Update password"}
+          submitLabel="Update password"
+          submitLoading={rotatingPassword}
           submitDisabled={rotatingPassword || newPassword.trim().length < 8}
           onClose={() => setPasswordTargetAccount(null)}
           onSubmit={() => void submitPasswordRotation()}
@@ -1006,8 +1008,9 @@ export function AdminAccountManagement() {
         <Modal
           title={`Remove Admin Account`}
           description={`Permanently remove admin access for ${deletingAccount.name}.`}
-          submitLabel={deletingBusy ? "Removing…" : "Remove admin permanently"}
+          submitLabel="Remove admin permanently"
           submitVariant="danger"
+          submitLoading={deletingBusy}
           submitDisabled={deletingBusy}
           onClose={() => setDeletingAccount(null)}
           onSubmit={() => void submitDeleteAccount()}

@@ -26,7 +26,8 @@ export async function POST(request: Request) {
       },
       body: request.body,
       cache: "no-store",
-    });
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
 
     const body = await readJson(upstream);
     return noStoreJson(body, upstream.status);

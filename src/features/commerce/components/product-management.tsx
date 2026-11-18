@@ -154,8 +154,8 @@ export function ProductManagement({ onToast, permissions, panelAccess, globalSea
   return <div className="page-wrap workspace-page product-workspace-page w-full min-w-0">
     <PageHeader
       eyebrow={resolvedActiveTab === "orders" ? "Commerce · Fulfilment & Payments" : "Commerce"}
-      title={resolvedActiveTab === "orders" ? "Orders & Payments" : resolvedActiveTab === "coupons" ? "Offers" : "Products"}
-      description={resolvedActiveTab === "orders" ? "Work through paid orders, shipping updates, customer refunds, and live Razorpay transactions." : resolvedActiveTab === "coupons" ? "Manage checkout promotions." : "Manage the product catalog."}
+      title={resolvedActiveTab === "overview" ? "Commerce Overview" : resolvedActiveTab === "orders" ? "Orders & Payments" : resolvedActiveTab === "coupons" ? "Offers" : "Products"}
+      description={resolvedActiveTab === "overview" ? "Revenue, orders, inventory health, and store analytics." : resolvedActiveTab === "orders" ? "Work through paid orders, shipping updates, customer refunds, and live Razorpay transactions." : resolvedActiveTab === "coupons" ? "Manage checkout promotions." : "Manage the product catalog."}
       action={resolvedActiveTab === "products" && canManageProducts ? <button className="button button-primary" onClick={() => setCreateProductOpen(true)}><Package size={14} />Add product</button> : undefined}
     />
     <SlidingTabList activeKey={resolvedActiveTab} className="commerce-tabs" label="Commerce sections">

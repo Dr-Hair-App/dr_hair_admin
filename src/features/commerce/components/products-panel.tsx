@@ -309,17 +309,23 @@ export function ProductsPanel({
       description: form.description.trim(),
       price: Math.round(Number(form.price)),
       compareAtPrice: Math.round(Number(form.mrp)),
+      compare_at_price: Math.round(Number(form.mrp)),
       unitCost: Math.round(Number(form.unitCost)),
+      unit_cost: Math.round(Number(form.unitCost)),
       stock: plans.reduce((sum, plan) => sum + plan.stock, 0),
       status: form.status,
       media: form.media,
       images: imageUrls,
       rootCauses: form.rootCauses,
+      root_causes: form.rootCauses,
       supplyPlans: plans,
+      supply_plans: plans,
       benefits,
       ingredients,
       usageSteps,
+      usage_steps: usageSteps,
       clinicalClaims,
+      clinical_claims: clinicalClaims,
       updated: "Just now",
     };
 
@@ -768,7 +774,8 @@ export function ProductsPanel({
         <Modal
           title="Delete product permanently?"
           description="This will permanently delete this medicine from the catalog and remove any unreferenced product images from R2."
-          submitLabel={isDeleting ? "Deleting..." : "Delete from database"}
+          submitLabel="Delete from database"
+          submitLoading={isDeleting}
           submitDisabled={isDeleting}
           submitVariant="danger"
           onClose={() => {
