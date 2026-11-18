@@ -194,7 +194,7 @@ export function AdminApplication({ initialPage = "overview", initialPatientId = 
       case "patients": return selectedAssessmentRef && selectedPatientId
         ? <PatientAssessmentDetailPage key={`${selectedPatientId}:${selectedAssessmentRef}`} patientId={selectedPatientId} referenceNo={selectedAssessmentRef} permissions={permissions} onToast={showToast} onAudit={recordAudit} onBack={closePatient} />
         : selectedPatientId
-          ? <PatientDetailPage key={selectedPatientId} patientId={selectedPatientId} role={role} onToast={showToast} onAudit={recordAudit} onBack={closePatient} />
+          ? <PatientDetailPage key={selectedPatientId} patientId={selectedPatientId} role={role} permissions={permissions} onToast={showToast} onAudit={recordAudit} onBack={closePatient} />
           : <OperationsPage kind="patients" globalSearch={globalSearch} onToast={showToast} permissions={permissions} onAudit={recordAudit} onOpenPatient={openPatient} />;
       case "catalog": return <ProductManagement onToast={showToast} permissions={permissions} panelAccess={panelAccess} globalSearch={globalSearch} onAudit={recordAudit} />;
       case "content": return <AppManagement role={role} onToast={showToast} permissions={permissions} onAudit={recordAudit} features={features} onFeaturesChange={setFeatures} panelAccess={panelAccess} onPanelAccessChange={changePanelAccess} />;

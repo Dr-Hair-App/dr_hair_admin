@@ -1,12 +1,12 @@
 import { cookies } from "next/headers";
 import { ADMIN_SESSION_COOKIE, fetchBackend, noStoreJson, readJson } from "../../../../_lib/backend";
+import { forwardClinicalReportUpload, getClinicalReportUploadToken } from "./forward-clinical-report-upload.js";
 
 export async function POST(request: Request, { params }: { params: Promise<{ userId: string }> }) {
   const cookieStore = await cookies();
   const cookieToken = cookieStore.get(ADMIN_SESSION_COOKIE)?.value;
   const authHeader = request.headers.get("authorization") || request.headers.get("Authorization");
-  const headerToken = authHeader?.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : undefined;
-  const token = cookieToken || headerToken;
+  const token = getClinicalReportUploadToken(cookieToken, authHeader);
   if (!token) return noStoreJson({ message: "Sign in to upload a patient report." }, 401);
 
   const { userId } = await params;
@@ -16,17 +16,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ use
   }
 
   try {
-    const upstream = await fetchBackend(`/api/v1/admin/users/${encodeURIComponent(userId)}/reports`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
-        "Content-Type": contentType,
-      },
-      body: request.body,
-      cache: "no-store",
-      duplex: "half",
-    } as RequestInit & { duplex: "half" });
+    const upstream = await forwardClinicalReportUpload(request, userId, token, fetchBackend);
     return noStoreJson(await readJson(upstream), upstream.status);
   } catch {
     return noStoreJson({ message: "The report storage service is temporarily unavailable." }, 503);

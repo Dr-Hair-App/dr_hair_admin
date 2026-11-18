@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3001`. Admin sign-in uses the backend email/password flow. Set `DRHAIR_BACKEND_URL` to the API origin and `ADMIN_PUBLIC_URL` to this panel's origin before deployment.
+Open `http://localhost:3001`. Admin sign-in uses the backend email/password flow. The standard backend `npm run dev` command starts Wrangler on port `8787`; copy `.env.example` to `.env.local` so the Admin BFF targets that API. If you run the backend’s standalone `node src/server.js` entry instead, set `DRHAIR_BACKEND_URL=http://localhost:5001`. Set `ADMIN_PUBLIC_URL` to this panel’s public origin before deployment.
 
 ## Structure
 

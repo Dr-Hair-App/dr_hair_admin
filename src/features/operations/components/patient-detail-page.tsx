@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Activity, ArrowLeft, CalendarDays, ChevronDown, ClipboardList, Copy, Download, Eye, EyeOff, FileCheck2, FileText, History, LoaderCircle, LockKeyhole, Mail, Pencil, Phone, Pill, Plus, RotateCcw, Search, Share2, ShieldCheck, Trash2, UploadCloud, UserRound, X } from "lucide-react";
-import type { Role } from "../../shared/types";
+import type { AdminPermissionId, Role } from "../../shared/types";
 import { Modal } from "../../shared/components/ui";
 import { CareArtwork, ImageChoice, dietOptions, routineOptions, type CareProductOption, type CareArt } from "./patient-care-options";
 import { FullSizeImageViewer, type ViewerImage } from "../../shared/components/full-size-image-viewer";
@@ -90,7 +90,7 @@ function formatDate(value?: string) {
 }
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value && typeof value === "object"); }
 
-export function PatientDetailPage({ patientId, role, onToast, onAudit, onBack }: { patientId: string; role: Role; onToast: (message: string) => void; onAudit: (action: string, target: string) => void; onBack?: () => void }) {
+export function PatientDetailPage({ patientId, role, permissions, onToast, onAudit, onBack }: { patientId: string; role: Role; permissions: AdminPermissionId[]; onToast: (message: string) => void; onAudit: (action: string, target: string) => void; onBack?: () => void }) {
   const router = useRouter();
   const [details, setDetails] = useState<PatientDetails | null>(null);
   const [pageNow, setPageNow] = useState<number | null>(null);
@@ -144,6 +144,7 @@ export function PatientDetailPage({ patientId, role, onToast, onAudit, onBack }:
   const [catalogError, setCatalogError] = useState("");
   const [reloadCatalog, setReloadCatalog] = useState(0);
   const canWrite = role === "super-admin";
+  const canUploadReports = canWrite || permissions.includes("documents.upload") || permissions.includes("reports.approve");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -338,8 +339,20 @@ export function PatientDetailPage({ patientId, role, onToast, onAudit, onBack }:
   };
 
   const uploadReport = async () => {
-    if (!canWrite || !reportFile || !reportTitle.trim()) {
-      onToast("Add a report name and choose a file first.");
+    if (!canUploadReports) {
+      onToast("Your account does not have permission to upload patient reports.");
+      return;
+    }
+    if (!reportTitle.trim()) {
+      onToast("Enter a report name before uploading.");
+      return;
+    }
+    if (!reportFile) {
+      onToast("Choose a report file before uploading.");
+      return;
+    }
+    if (shareReportOnUpload && !uploadConsentConfirmed) {
+      onToast("Confirm patient consent before sharing this report.");
       return;
     }
     setUploadingReport(true);
@@ -552,7 +565,7 @@ export function PatientDetailPage({ patientId, role, onToast, onAudit, onBack }:
         </button>
       </div>
     )}
-    {!canWrite && <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900"><LockKeyhole size={15} className="mt-0.5 shrink-0" />This account can view patient records. A Super Admin can edit the profile, upload reports, and add care suggestions.</div>}
+    {!canWrite && <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900"><LockKeyhole size={15} className="mt-0.5 shrink-0" />This account can view patient records. Additional report upload or care edit permissions may be required for those actions.</div>}
 
     <div className="grid min-w-0 grid-cols-1 items-start gap-5 md:grid-cols-[minmax(245px,0.82fr)_minmax(0,1.45fr)]">
       <div className="min-w-0 space-y-5">
@@ -628,7 +641,7 @@ export function PatientDetailPage({ patientId, role, onToast, onAudit, onBack }:
       </div>
 
       <div className="min-w-0 space-y-5">
-    {(details.reports.length > 0 || archivedReports.length > 0 || canWrite) && <section className="min-w-0 rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+    {(details.reports.length > 0 || archivedReports.length > 0 || canUploadReports || canWrite) && <section className="min-w-0 rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start justify-between gap-3 sm:block">
           <SectionHeading icon={<FileCheck2 size={17} />} title="Reports & documents" subtitle="Private by default. Share a file when it is ready for the patient." />
@@ -636,7 +649,7 @@ export function PatientDetailPage({ patientId, role, onToast, onAudit, onBack }:
         </div>
         <div className="flex items-center gap-2">
           <span className="hidden rounded-full bg-[#F4F8FB] px-2.5 py-1 text-[10px] font-semibold text-slate-500 sm:inline-flex">{details.reports.length} files</span>
-          {canWrite && <button type="button" className="button button-secondary w-full sm:w-auto" onClick={() => { setReportTitle(""); setReportFile(null); setShareReportOnUpload(false); setUploadConsentConfirmed(false); setReportOpen(true); }}><UploadCloud size={15} />Upload report</button>}
+          {canUploadReports && <button type="button" className="button button-secondary w-full sm:w-auto" onClick={() => { setReportTitle(""); setReportFile(null); setShareReportOnUpload(false); setUploadConsentConfirmed(false); setReportOpen(true); }}><UploadCloud size={15} />Upload report</button>}
         </div>
       </div>
       {details.reports.length ? <div className="mt-5 space-y-3">{details.reports.map((report) => {
@@ -896,6 +909,7 @@ export function PatientDetailPage({ patientId, role, onToast, onAudit, onBack }:
       <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-xl border border-slate-200 bg-[#FAFBFD] p-3 text-xs leading-5 text-slate-700"><input type="checkbox" checked={shareReportOnUpload} onChange={(event) => { setShareReportOnUpload(event.target.checked); setUploadConsentConfirmed(false); }} className="mt-1 accent-teal-700" disabled={uploadingReport} /><span>Share with the patient and send an app notification after upload.</span></label>
       {shareReportOnUpload && <label className="mt-2 flex cursor-pointer items-start gap-2 rounded-xl border border-teal-100 bg-teal-50/60 p-3 text-xs leading-5 text-teal-950"><input type="checkbox" checked={uploadConsentConfirmed} onChange={(event) => setUploadConsentConfirmed(event.target.checked)} className="mt-1 accent-teal-700" disabled={uploadingReport} /><span>I confirmed that this patient agrees to receive this report in their signed-in app.</span></label>}
       <label className="mt-4 flex cursor-pointer items-center gap-3 rounded-2xl border border-dashed border-slate-300 bg-[#FAFBFD] p-4 transition hover:border-teal-400"><input id="patient-report-file" type="file" accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,image/jpeg,image/png,image/webp,image/gif,image/avif,image/heic,image/heif" className="sr-only" disabled={uploadingReport} onChange={(event) => { const selected = event.target.files?.[0] ?? null; if (selected && selected.size > 25 * 1024 * 1024) { setReportFile(null); onToast("Choose a file smaller than 25 MiB."); event.target.value = ""; return; } setReportFile(selected); }} /><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white text-teal-700 shadow-sm"><UploadCloud size={19} /></span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold text-slate-700">{reportFile?.name || "Choose a report file"}</span><span className="mt-1 block text-[10px] text-slate-400">PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, TXT, or images · up to 25 MiB</span></span>{reportFile && <button type="button" className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-white hover:text-slate-700" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setReportFile(null); const input = document.getElementById("patient-report-file") as HTMLInputElement | null; if (input) input.value = ""; }} aria-label="Remove selected file"><X size={15} /></button>}</label>
+      {(!reportTitle.trim() || !reportFile || (shareReportOnUpload && !uploadConsentConfirmed)) && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900" role="status">{!reportTitle.trim() && !reportFile ? "Enter a report name and choose a file to enable upload." : !reportTitle.trim() ? "Enter a report name to enable upload." : !reportFile ? "Choose a report file to enable upload." : "Confirm patient consent to enable sharing."}</p>}
     </Modal>}
 
     {reviewingCheckIn && (
