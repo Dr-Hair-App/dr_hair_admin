@@ -31,7 +31,7 @@ import { Modal, StatusPill } from "../../shared/components/ui";
 import { FullSizeImageViewer, type ViewerImage } from "../../shared/components/full-size-image-viewer";
 import { useSessionState } from "../../shared/lib/use-session-state";
 import { formatCurrency } from "../lib/format";
-import { prepareSmartImage } from "../../../shared/lib/smart-image-upload";
+import { prepareSmartImage } from "../../shared/lib/smart-image-upload";
 import type {
   ProductBenefit,
   ProductClinicalClaim,
