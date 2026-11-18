@@ -18,6 +18,8 @@ const audienceOptions: { value: Audience; label: string; note: string }[] = [
   { value: "All app users", label: "All app users", note: "Every registered or guest device token" },
 ];
 type DeepLinkTarget = "clinic_appointment" | "product" | "hair_test" | "videos" | "orders" | "profile";
+type ProductDestinationOption = { id: string; name: string; sku?: string };
+const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
 interface NotificationRecord {
   id: string;
@@ -42,7 +44,11 @@ export function NotificationsPanel({ onToast, onAudit }: { onToast: (message: st
   const [imageUrl, setImageUrl] = useState("");
   const [audiences, setAudiences] = useState<Audience[]>(["Accounts & assessments"]);
   const [deepLink, setDeepLink] = useState<DeepLinkTarget>("clinic_appointment");
-  const [productId, setProductId] = useState("prod-anti-dandruff-shampoo");
+  const [productId, setProductId] = useState("");
+  const [products, setProducts] = useState<ProductDestinationOption[]>([]);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [productsError, setProductsError] = useState("");
+  const [productLoadAttempt, setProductLoadAttempt] = useState(0);
   const [scheduleMode, setScheduleMode] = useState<"now" | "later">("now");
   const [scheduledAt, setScheduledAt] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -62,6 +68,41 @@ export function NotificationsPanel({ onToast, onAudit }: { onToast: (message: st
       })
       .catch(() => setLiveAudienceCount(0));
   }, [audienceKey]);
+
+  useEffect(() => {
+    if (deepLink !== "product") return;
+    const controller = new AbortController();
+    const loadProducts = async () => {
+      setProductsLoading(true);
+      setProductsError("");
+      try {
+        const response = await fetch("/api/admin/products?limit=100&status=active", { cache: "no-store", signal: controller.signal });
+        const bodyValue: unknown = await response.json().catch(() => ({}));
+        const body = isRecord(bodyValue) ? bodyValue : {};
+        if (!response.ok) throw new Error(typeof body.message === "string" ? body.message : "Products could not be loaded.");
+        const data = body.data;
+        const items = Array.isArray(data) ? data : isRecord(data) && Array.isArray(data.items) ? data.items : [];
+        const nextProducts = items
+          .filter(isRecord)
+          .map((item) => ({
+            id: String(item.id ?? item._id ?? ""),
+            name: String(item.name ?? item.title ?? ""),
+            sku: typeof item.sku === "string" ? item.sku : undefined,
+          }))
+          .filter((item): item is ProductDestinationOption => Boolean(item.id && item.name));
+        if (!controller.signal.aborted) {
+          setProducts(nextProducts);
+          setProductId((current) => nextProducts.some((product) => product.id === current) ? current : "");
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) setProductsError(error instanceof Error ? error.message : "Products could not be loaded.");
+      } finally {
+        if (!controller.signal.aborted) setProductsLoading(false);
+      }
+    };
+    void Promise.resolve().then(loadProducts);
+    return () => controller.abort();
+  }, [deepLink, productLoadAttempt]);
 
   useEffect(() => {
     fetch("/api/admin/notifications?page=1&limit=20")
@@ -111,6 +152,10 @@ export function NotificationsPanel({ onToast, onAudit }: { onToast: (message: st
     }
     if (scheduleMode === "later" && (!scheduledAt || new Date(scheduledAt).getTime() <= Date.now())) {
       onToast("Choose a future date and time for the notification.");
+      return;
+    }
+    if (deepLink === "product" && !products.some((product) => product.id === productId)) {
+      onToast("Choose a current product before creating this notification.");
       return;
     }
 
@@ -294,13 +339,12 @@ export function NotificationsPanel({ onToast, onAudit }: { onToast: (message: st
 
             {deepLink === "product" && (
               <label className="field">
-                <span>Product ID / Slug</span>
-                <input
-                  value={productId}
-                  onChange={(e) => setProductId(e.target.value)}
-                  placeholder="e.g. prod-anti-dandruff-shampoo"
-                />
-                <small>App opens Product Details view directly for this item</small>
+                <span>Product destination</span>
+                <select value={productId} onChange={(event) => setProductId(event.target.value)} disabled={productsLoading || Boolean(productsError) || products.length === 0} required>
+                  <option value="">{productsLoading ? "Loading active products…" : productsError ? "Products unavailable" : products.length === 0 ? "No active products available" : "Choose a product"}</option>
+                  {products.map((product) => <option key={product.id} value={product.id}>{product.name}{product.sku ? ` · ${product.sku}` : ""}</option>)}
+                </select>
+                {productsError ? <small className="flex items-center gap-2" role="alert">{productsError}<button type="button" className="text-action" onClick={() => { setProductsLoading(true); setProductsError(""); setProductLoadAttempt((attempt) => attempt + 1); }}>Retry</button></small> : <small>{productsLoading ? "Loading active products…" : products.length ? "The selected product is loaded from the active catalog." : "Create and activate a catalog product before linking to it."}</small>}
               </label>
             )}
 
@@ -340,7 +384,7 @@ export function NotificationsPanel({ onToast, onAudit }: { onToast: (message: st
               <button
                 className="button button-primary"
                 type="button"
-                disabled={isSubmitting}
+                disabled={isSubmitting || (deepLink === "product" && (productsLoading || Boolean(productsError) || !products.some((product) => product.id === productId)))}
                 onClick={submit}
               >
                 <Send size={14} />

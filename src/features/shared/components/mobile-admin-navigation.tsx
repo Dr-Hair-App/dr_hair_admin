@@ -5,7 +5,7 @@ import { MoreHorizontal } from "lucide-react";
 import type { NavigationItem } from "../lib/permissions";
 import type { PageKey } from "../types";
 
-const primaryKeys: PageKey[] = ["overview", "catalog", "bookings", "content"];
+const primaryKeys: PageKey[] = ["overview", "patients", "bookings", "catalog"];
 const shortLabels: Partial<Record<PageKey, string>> = {
   overview: "Home",
   patients: "Patients",

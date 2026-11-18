@@ -101,11 +101,11 @@ export function StorePoliciesPanel({ onToast }: { onToast: (message: string) => 
 
   return (
     <div className="space-y-5">
-      {/* Play Store Guidance Banner */}
+      {/* Public policy links do not certify legal or app-store compliance. */}
       <div className="notice border border-[#D6E0FC] bg-[#F0F7FF] text-[#1A365D]">
         <ShieldCheck size={16} className="text-[#0D9488] shrink-0 mt-0.5" />
         <div className="text-xs leading-relaxed">
-          <strong>Google Play Console &amp; App Store Ready:</strong> Copy these public URLs directly into your <strong>Google Play Console</strong> (under <em>Policy and Programs &gt; App Content &gt; Privacy Policy</em> and <em>Data Safety &gt; Delete Account URL</em>). All links are public, HTTPS-secured, mobile-responsive, and compliant with store review guidelines.
+          <strong>Public policy links:</strong> Copy these URLs into the relevant store listings after confirming that each page reflects your current policy and the store&apos;s requirements. This panel verifies that links are available; it does not certify legal or app-store compliance.
         </div>
       </div>
 

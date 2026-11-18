@@ -7,24 +7,19 @@ import type { Status } from "../types";
 
 export function StatusPill({ status }: { status: Status | string }) {
   const key = status.toLowerCase();
-  const className = key === "active" ? "status-active" :
+  const className =
+    key === "active" ? "status-active" :
     key === "new" ? "status-new" :
     key === "preparing" ? "status-preparing" :
-    key === "shipped" ? "status-shipped" :
-    key === "needs attention" ? "status-review" :
-    key === "return requested" ? "status-review" :
-    key === "paid" ? "status-completed" :
+    key === "shipped" || key === "in consultation" ? "status-shipped" :
+    key === "needs attention" || key === "return requested" || key === "review" || key === "arrived" ? "status-review" :
+    key === "paid" || key === "completed" || key === "delivered" ? "status-completed" :
     key === "partially refunded" ? "status-review" :
-    key === "failed" ? "status-cancelled" :
-    key === "refunded" ? "status-cancelled" :
+    key === "failed" || key === "refunded" || key === "cancelled" || key === "no show" ? "status-cancelled" :
     key === "published" ? "status-published" :
-    key === "completed" ? "status-completed" :
     key === "pending" ? "status-pending" :
-    key === "review" ? "status-review" :
     key === "draft" ? "status-draft" :
-    key === "suspended" ? "status-suspended" :
-    key === "no show" ? "status-cancelled" :
-    key === "cancelled" ? "status-cancelled" : "status-inactive";
+    key === "suspended" ? "status-suspended" : "status-inactive";
   return <span className={`status ${className}`}>{status}</span>;
 }
 
@@ -149,6 +144,8 @@ export function Modal({
   submitVariant = "primary",
   className = "",
   hideCancel = false,
+  hideFooter = false,
+  actions,
   onClose,
   onSubmit,
 }: {
@@ -161,6 +158,8 @@ export function Modal({
   submitVariant?: "primary" | "danger" | "teal";
   className?: string;
   hideCancel?: boolean;
+  hideFooter?: boolean;
+  actions?: ReactNode;
   onClose: () => void;
   onSubmit: () => void;
 }) {
@@ -280,33 +279,41 @@ export function Modal({
           </button>
         </div>
         <div className="modal-body">{children}</div>
-        <div className="modal-actions">
-          {!hideCancel && (
-            <button
-              type="button"
-              className="button button-secondary"
-              onClick={requestClose}
-            >
-              Cancel
-            </button>
-          )}
-          <button
-            type="button"
-            className={`button ${
-              submitVariant === "danger"
-                ? "button-danger"
-                : submitVariant === "teal"
-                ? "button-teal"
-                : "button-primary"
-            } ${submitLoading ? "is-loading" : ""}`}
-            disabled={submitDisabled || submitLoading}
-            aria-busy={submitLoading ? "true" : undefined}
-            onClick={onSubmit}
-          >
-            {submitLoading && <span className="button-spinner" aria-hidden="true" />}
-            <span>{submitLabel}</span>
-          </button>
-        </div>
+        {!hideFooter && (
+          <div className="modal-actions">
+            {actions ? (
+              actions
+            ) : (
+              <>
+                {!hideCancel && (
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    onClick={requestClose}
+                  >
+                    Cancel
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className={`button ${
+                    submitVariant === "danger"
+                      ? "button-danger"
+                      : submitVariant === "teal"
+                      ? "button-teal"
+                      : "button-primary"
+                  } ${submitLoading ? "is-loading" : ""}`}
+                  disabled={submitDisabled || submitLoading}
+                  aria-busy={submitLoading ? "true" : undefined}
+                  onClick={onSubmit}
+                >
+                  {submitLoading && <span className="button-spinner" aria-hidden="true" />}
+                  <span>{submitLabel}</span>
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </section>
     </div>,
     document.body
@@ -371,6 +378,63 @@ export function Skeleton({
       style={{ width, height }}
       aria-hidden="true"
     />
+  );
+}
+
+export function TableSkeleton({
+  rows = 5,
+  cols = 6,
+  className = "",
+}: {
+  rows?: number;
+  cols?: number;
+  className?: string;
+}) {
+  return (
+    <div className={`w-full space-y-3 p-4 ${className}`} aria-hidden="true">
+      <div className="flex items-center gap-4 pb-2 border-b border-slate-100">
+        {Array.from({ length: cols }).map((_, i) => (
+          <Skeleton key={i} className={`h-3.5 ${i === 0 ? "w-32 flex-none" : "flex-1"}`} variant="text" />
+        ))}
+      </div>
+      {Array.from({ length: rows }).map((_, r) => (
+        <div key={r} className="flex items-center gap-4 py-2.5 border-b border-slate-50">
+          {Array.from({ length: cols }).map((_, c) => (
+            <Skeleton
+              key={c}
+              className={`h-4 ${c === 0 ? "w-32 flex-none" : "flex-1"}`}
+              variant="text"
+            />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function CardSkeleton({
+  count = 4,
+  className = "",
+}: {
+  count?: number;
+  className?: string;
+}) {
+  return (
+    <div className={`grid grid-cols-2 lg:grid-cols-4 gap-4 ${className}`} aria-hidden="true">
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="card p-5 space-y-3">
+          <div className="flex justify-between items-center">
+            <Skeleton className="h-3 w-20" variant="text" />
+            <Skeleton className="h-8 w-8 rounded-xl" variant="rectangular" />
+          </div>
+          <Skeleton className="h-7 w-24" variant="text" />
+          <div className="pt-2 border-t border-slate-100 flex justify-between">
+            <Skeleton className="h-3 w-16" variant="text" />
+            <Skeleton className="h-3 w-16" variant="text" />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 

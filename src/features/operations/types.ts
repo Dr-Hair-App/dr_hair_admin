@@ -121,7 +121,7 @@ export interface HairTestRecord {
   testDate: string;
   fileName: string;
   fileType: string;
-  fileSize: number;
+  fileSize?: number;
   status: HairTestStatus;
   createdAt: string;
   uploadedBy: string;

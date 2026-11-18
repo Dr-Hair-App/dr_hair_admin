@@ -8,7 +8,7 @@ async function adminToken() {
 }
 
 export async function PUT(
-  _request: Request,
+  request: Request,
   { params }: RouteContext
 ) {
   const token = await adminToken();

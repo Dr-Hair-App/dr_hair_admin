@@ -11,7 +11,10 @@ import {
   BadgeCheck,
   Boxes,
   Check,
+  CheckCircle2,
+  ChevronLeft,
   ImagePlus,
+  Info,
   Loader2,
   Package,
   PackagePlus,
@@ -20,6 +23,8 @@ import {
   RefreshCw,
   RotateCcw,
   Search,
+  Sliders,
+  Sparkles,
   Star,
   Trash2,
   TrendingUp,
@@ -56,6 +61,10 @@ type ProductFormState = {
   sku: string;
   rootCauses: string[];
   supplyPlans: ProductSupplyPlan[];
+  benefits: ProductBenefit[];
+  ingredients: ProductIngredient[];
+  usageSteps: ProductUsageStep[];
+  clinicalClaims: ProductClinicalClaim[];
   benefitsText: string;
   ingredientsText: string;
   usageStepsText: string;
@@ -77,33 +86,48 @@ function generateUniqueSku(prefix = "DRH"): string {
   return `${prefix}-${randomNum}`;
 }
 
-const newPlan = (): ProductSupplyPlan => ({
+const newPlan = (defaults?: Partial<ProductSupplyPlan>): ProductSupplyPlan => ({
   id: `plan-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-  title: "",
-  subtitle: "",
+  title: "1 Month Supply",
+  subtitle: "Standard Pack",
   sku: generateUniqueSku(),
   price: 0,
   mrp: 0,
   unitCost: 0,
   stock: 0,
-  lowStockThreshold: 0,
+  lowStockThreshold: 10,
   badge: "",
   shippingProfile: { weightKg: 0, lengthCm: 0, breadthCm: 0, heightCm: 0 },
+  ...defaults,
 });
 
 function getPlans(product: ProductRecord): ProductSupplyPlan[] {
-  if (product.supplyPlans?.length) return product.supplyPlans;
+  if (product.supplyPlans?.length) {
+    return product.supplyPlans.map((plan) => ({
+      ...plan,
+      stock: Number.isFinite(Number(plan.stock)) ? Math.max(0, Number(plan.stock)) : 0,
+      lowStockThreshold: Number.isFinite(Number(plan.lowStockThreshold))
+        ? Math.max(0, Number(plan.lowStockThreshold))
+        : 0,
+      shippingProfile: {
+        weightKg: Number.isFinite(Number(plan.shippingProfile?.weightKg)) ? Number(plan.shippingProfile?.weightKg) : 0,
+        lengthCm: Number.isFinite(Number(plan.shippingProfile?.lengthCm)) ? Number(plan.shippingProfile?.lengthCm) : 0,
+        breadthCm: Number.isFinite(Number(plan.shippingProfile?.breadthCm)) ? Number(plan.shippingProfile?.breadthCm) : 0,
+        heightCm: Number.isFinite(Number(plan.shippingProfile?.heightCm)) ? Number(plan.shippingProfile?.heightCm) : 0,
+      },
+    }));
+  }
   return [
     {
       id: `${product.id}-default`,
-      title: "1 Month",
+      title: "1 Month Supply",
       subtitle: product.name,
       sku: product.sku || generateUniqueSku(),
       price: product.price || 0,
       mrp: product.compareAtPrice || product.price || 0,
       unitCost: product.unitCost || 0,
       stock: product.stock ?? 0,
-      lowStockThreshold: 0,
+      lowStockThreshold: 10,
       badge: "",
       shippingProfile: { weightKg: 0, lengthCm: 0, breadthCm: 0, heightCm: 0 },
     },
@@ -115,10 +139,8 @@ function featuredPlan(plans: ProductSupplyPlan[]) {
 }
 
 function productStock(product: ProductRecord) {
-  return getPlans(product).reduce((total, plan) => {
-    const stock = Number(plan.stock);
-    return total + (Number.isFinite(stock) ? Math.max(0, stock) : 0);
-  }, 0);
+  const stock = Number(product.stock);
+  return Number.isFinite(stock) ? Math.max(0, stock) : 0;
 }
 
 function asLines<T>(items: T[] | undefined, render: (item: T) => string) {
@@ -147,7 +169,11 @@ function formFor(product: ProductRecord | null): ProductFormState {
       stock: 0,
       sku: initialSku,
       rootCauses: [],
-      supplyPlans: [{ ...newPlan(), sku: initialSku }],
+      supplyPlans: [newPlan({ sku: initialSku, stock: 0 })],
+      benefits: [],
+      ingredients: [],
+      usageSteps: [],
+      clinicalClaims: [],
       benefitsText: "",
       ingredientsText: "",
       usageStepsText: "",
@@ -167,32 +193,39 @@ function formFor(product: ProductRecord | null): ProductFormState {
         isPrimary: idx === 0,
       }));
 
+  const benefits = product.benefits || [];
+  const ingredients = product.ingredients || [];
+  const usageSteps = product.usageSteps || [];
+  const clinicalClaims = product.clinicalClaims || [];
+
   return {
     name: product.name,
     category: product.category,
     description: product.description,
     status: product.status,
     price: primary.price || product.price || 0,
-    mrp: primary.mrp || product.compareAtPrice || 0,
+    mrp: primary.mrp || product.compareAtPrice || primary.price || product.price || 0,
     unitCost: primary.unitCost || product.unitCost || 0,
     stock: productStock(product),
     sku: primary.sku || product.sku || generateUniqueSku(),
     rootCauses: product.rootCauses ?? [],
     supplyPlans: plans,
-    benefitsText: asLines<ProductBenefit>(product.benefits, (item) => `${item.title} | ${item.description}`),
-    ingredientsText: asLines<ProductIngredient>(product.ingredients, (item) => `${item.name} | ${item.concentration} | ${item.purpose}`),
-    usageStepsText: asLines<ProductUsageStep>(product.usageSteps, (item) => `${item.title} | ${item.description}`),
-    clinicalClaimsText: asLines<ProductClinicalClaim>(product.clinicalClaims, (item) => `${item.percentage} | ${item.claim} | ${item.source}`),
+    benefits,
+    ingredients,
+    usageSteps,
+    clinicalClaims,
+    benefitsText: asLines<ProductBenefit>(benefits, (item) => `${item.title} | ${item.description}`),
+    ingredientsText: asLines<ProductIngredient>(ingredients, (item) => `${item.name} | ${item.concentration} | ${item.purpose}`),
+    usageStepsText: asLines<ProductUsageStep>(usageSteps, (item) => `${item.title} | ${item.description}`),
+    clinicalClaimsText: asLines<ProductClinicalClaim>(clinicalClaims, (item) => `${item.percentage} | ${item.claim} | ${item.source}`),
     media: mediaItems,
   };
 }
 
 function stockLabel(product: ProductRecord) {
-  const plans = getPlans(product);
-  const low = plans.filter((plan) => plan.stock <= plan.lowStockThreshold).length;
   const stock = productStock(product);
   if (stock === 0) return { label: "Out of stock", low: true };
-  if (low > 0) return { label: `${low} plan${low > 1 ? "s" : ""} low`, low: true };
+  if (stock <= 10) return { label: "Low stock", low: true };
   return { label: `${stock} units`, low: false };
 }
 
@@ -214,6 +247,7 @@ export function ProductsPanel({
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All status");
   const [editorProduct, setEditorProduct] = useState<ProductRecord | null>(null);
+  const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [detailProduct, setDetailProduct] = useState<ProductRecord | null>(null);
   const [archiveProduct, setArchiveProduct] = useState<ProductRecord | null>(null);
   const [stockProduct, setStockProduct] = useState<ProductRecord | null>(null);
@@ -230,28 +264,70 @@ export function ProductsPanel({
         .includes(query.toLowerCase()) &&
       (statusFilter === "All status" || product.status?.toLowerCase() === statusFilter.toLowerCase())
   );
-  const allPlans = products.flatMap((product) => getPlans(product).map((plan) => ({ product, plan })));
-  const lowStockCount = allPlans.filter(({ plan }) => plan.stock <= plan.lowStockThreshold).length;
+  const lowStockCount = products.filter((product) => productStock(product) <= 10).length;
 
   const saveProduct = async (form: ProductFormState, existing: ProductRecord | null): Promise<boolean> => {
-    // Sync lead plan with primary pricing
+    const rawPrice = Number(form.price);
+    if (!form.name.trim()) {
+      throw new Error("Product / medicine name is required.");
+    }
+    if (!form.category.trim()) {
+      throw new Error("Please select or enter a product category.");
+    }
+    if (!Number.isFinite(rawPrice) || rawPrice <= 0) {
+      throw new Error("Selling price must be greater than ₹0.");
+    }
+    if (form.rootCauses.length === 0) {
+      throw new Error("Add at least one concern tag so patients can discover this product in the app.");
+    }
+    if (form.supplyPlans.length === 0 || form.supplyPlans.some((plan) => {
+      const profile = plan.shippingProfile;
+      return [profile?.weightKg, profile?.lengthCm, profile?.breadthCm, profile?.heightCm]
+        .some((value) => !Number.isFinite(Number(value)) || Number(value) <= 0);
+    })) {
+      throw new Error("Enter confirmed weight and parcel dimensions for every supply plan before saving.");
+    }
+
+    const sellingPrice = Math.round(rawPrice);
+    const retailMrp = form.mrp && Number(form.mrp) >= sellingPrice ? Math.round(Number(form.mrp)) : sellingPrice;
+
+    // Sync lead plan with primary pricing and ensure valid parcel dimensions
     const plans = form.supplyPlans.map((plan, idx) => {
       const isLead = idx === 0;
+      const planPrice = isLead ? sellingPrice : Math.max(1, Math.round(Number(plan.price)) || sellingPrice);
+      const planMrp = isLead
+        ? retailMrp
+        : Math.max(planPrice, Math.round(Number(plan.mrp)) || planPrice);
+
+      const profile = plan.shippingProfile;
+      const weightKg = Number(profile?.weightKg);
+      const lengthCm = Number(profile?.lengthCm);
+      const breadthCm = Number(profile?.breadthCm);
+      const heightCm = Number(profile?.heightCm);
+
       return {
         ...plan,
-        title: plan.title.trim(),
+        title: (plan.title.trim() || (isLead ? "1 Month Supply" : `Pack ${idx + 1}`)),
         subtitle: plan.subtitle.trim(),
         sku: (plan.sku.trim() || form.sku.trim() || generateUniqueSku()).toUpperCase(),
-        price: isLead ? Math.round(Number(form.price)) : Math.round(Number(plan.price)),
-        mrp: isLead ? Math.round(Number(form.mrp)) : Math.round(Number(plan.mrp)),
+        price: planPrice,
+        mrp: planMrp,
+        compareAtPrice: planMrp,
         unitCost: isLead ? Math.round(Number(form.unitCost)) : Math.round(Number(plan.unitCost)),
-        stock: isLead ? Math.max(0, Math.floor(Number(form.stock))) : Math.max(0, Math.floor(Number(plan.stock))),
+        // Inventory is tracked at product level by the backend, not by supply plan.
+        stock: 0,
         lowStockThreshold: Math.max(0, Math.floor(Number(plan.lowStockThreshold))),
         shippingProfile: {
-          weightKg: Number(plan.shippingProfile?.weightKg) || 0,
-          lengthCm: Number(plan.shippingProfile?.lengthCm) || 0,
-          breadthCm: Number(plan.shippingProfile?.breadthCm) || 0,
-          heightCm: Number(plan.shippingProfile?.heightCm) || 0,
+          weightKg,
+          lengthCm,
+          breadthCm,
+          heightCm,
+        },
+        shipping_profile: {
+          weight_kg: weightKg,
+          length_cm: lengthCm,
+          breadth_cm: breadthCm,
+          height_cm: heightCm,
         },
         badge: plan.badge.trim(),
       };
@@ -259,39 +335,40 @@ export function ProductsPanel({
 
     const primary = featuredPlan(plans);
 
-    if (!form.name.trim()) {
-      throw new Error("Product name is required.");
-    }
-    if (!form.category) {
-      throw new Error("Product category is required.");
-    }
-    if (form.rootCauses.length === 0) {
-      throw new Error("Add at least one concern tag so patients can find this product.");
-    }
-    if (plans.length === 0 || plans.some((plan) => !plan.title || plan.price <= 0 || plan.mrp < plan.price)) {
-      throw new Error("Add a named supply plan with a valid selling price and MRP.");
-    }
-    if (plans.some((plan) => Number(plan.shippingProfile?.weightKg) <= 0 || Number(plan.shippingProfile?.lengthCm) <= 0 || Number(plan.shippingProfile?.breadthCm) <= 0 || Number(plan.shippingProfile?.heightCm) <= 0)) {
-      throw new Error("Enter weight and parcel dimensions for every supply plan before publishing it.");
-    }
-    if (!Number.isFinite(form.price) || form.price <= 0) {
-      throw new Error("Product selling price must be greater than 0.");
-    }
+    // Resolve benefits: structured array preferred, fallback to parsed text
+    const benefits = form.benefits && form.benefits.length > 0
+      ? form.benefits.filter((b) => b.title.trim())
+      : parseLines(form.benefitsText || "", 2).map(([title, description]) => ({ title, description }));
 
-    const benefits = parseLines(form.benefitsText, 2).map(([title, description]) => ({ title, description }));
-    const ingredients = parseLines(form.ingredientsText, 3).map(([name, concentration, purpose]) => ({
-      name,
-      concentration,
-      purpose,
-    }));
-    const usageSteps = parseLines(form.usageStepsText, 2).map(([title, description]) => ({ title, description }));
-    const clinicalClaims = parseLines(form.clinicalClaimsText, 3).map(([percentage, claim, source]) => ({
-      percentage,
-      claim,
-      source,
-    }));
+    // Resolve ingredients: structured array preferred, fallback to parsed text
+    const ingredients = form.ingredients && form.ingredients.length > 0
+      ? form.ingredients.filter((i) => i.name.trim())
+      : parseLines(form.ingredientsText || "", 3).map(([name, concentration, purpose]) => ({
+          name,
+          concentration,
+          purpose,
+        }));
 
-    const imageUrls = form.media
+    // Resolve usage steps: structured array preferred, fallback to parsed text
+    const usageSteps = form.usageSteps && form.usageSteps.length > 0
+      ? form.usageSteps.filter((u) => u.title.trim() || u.description.trim())
+      : parseLines(form.usageStepsText || "", 2).map(([title, description]) => ({ title, description }));
+
+    // Resolve clinical claims: structured array preferred, fallback to parsed text
+    const clinicalClaims = form.clinicalClaims && form.clinicalClaims.length > 0
+      ? form.clinicalClaims.filter((c) => c.claim.trim())
+      : parseLines(form.clinicalClaimsText || "", 3).map(([percentage, claim, source]) => ({
+          percentage,
+          claim,
+          source,
+        }));
+
+    // Place starred primary cover image first so patient apps and catalog feeds display it
+    const primaryMediaItem = form.media.find((m) => m.isPrimary && m.kind === "image");
+    const otherMediaItems = form.media.filter((m) => m !== primaryMediaItem);
+    const orderedMedia = primaryMediaItem ? [primaryMediaItem, ...otherMediaItems] : form.media;
+
+    const imageUrls = orderedMedia
       .filter((m) => m.kind === "image")
       .map((m) =>
         m.url && m.url.startsWith("http")
@@ -305,16 +382,16 @@ export function ProductsPanel({
     const details = {
       name: form.name.trim(),
       sku: form.sku.trim().toUpperCase() || primary.sku,
-      category: form.category,
+      category: form.category.trim(),
       description: form.description.trim(),
-      price: Math.round(Number(form.price)),
-      compareAtPrice: Math.round(Number(form.mrp)),
-      compare_at_price: Math.round(Number(form.mrp)),
+      price: sellingPrice,
+      compareAtPrice: retailMrp,
+      compare_at_price: retailMrp,
       unitCost: Math.round(Number(form.unitCost)),
       unit_cost: Math.round(Number(form.unitCost)),
-      stock: plans.reduce((sum, plan) => sum + plan.stock, 0),
+      ...(existing ? {} : { stock: Math.max(0, Math.floor(Number(form.stock) || 0)) }),
       status: form.status,
-      media: form.media,
+      media: orderedMedia,
       images: imageUrls,
       rootCauses: form.rootCauses,
       root_causes: form.rootCauses,
@@ -326,34 +403,11 @@ export function ProductsPanel({
       usage_steps: usageSteps,
       clinicalClaims,
       clinical_claims: clinicalClaims,
+      clinical_metrics: clinicalClaims,
       updated: "Just now",
     };
 
     const productId = existing?.id ?? `prd-${Date.now()}`;
-    const previousPlans = existing ? getPlans(existing) : [];
-    const stockChanges = plans.flatMap((plan) => {
-      const previousStock = previousPlans.find((previous) => previous.id === plan.id)?.stock ?? 0;
-      const change = plan.stock - previousStock;
-      return change === 0
-        ? []
-        : [
-            {
-              id: `STK-${Date.now()}-${plan.id}`,
-              productId,
-              variantId: plan.id,
-              variantTitle: plan.title,
-              quantityChange: change,
-              reason: previousPlans.some((previous) => previous.id === plan.id)
-                ? "Stock updated in product editor"
-                : "Opening stock",
-              createdAt: new Date().toISOString(),
-            },
-          ];
-    });
-
-    if (stockChanges.length) {
-      setMovements((current) => [...stockChanges, ...current]);
-    }
 
     if (existing) {
       const res = await fetch(`/api/admin/products/${encodeURIComponent(existing.id)}`, {
@@ -392,42 +446,40 @@ export function ProductsPanel({
     }
   };
 
-  const applyStockAdjustment = (product: ProductRecord, planId: string, delta: number, reason: string) => {
-    const plan = getPlans(product).find((item) => item.id === planId);
-    if (!plan || !Number.isInteger(delta) || delta === 0 || plan.stock + delta < 0 || !reason.trim()) {
-      onToast("Choose a valid stock change and reason. Stock cannot go below zero.");
+  const applyStockAdjustment = async (product: ProductRecord, delta: number, reason: string): Promise<boolean> => {
+    if (!Number.isSafeInteger(delta) || delta === 0 || !reason.trim()) {
+      onToast("Choose a valid stock change and reason.");
       return false;
     }
-    const plans = getPlans(product).map((item) =>
-      item.id === planId ? { ...item, stock: item.stock + delta } : item
-    );
-    const updatedStock = plans.reduce((sum, variant) => sum + variant.stock, 0);
-    onProductsChange((current) =>
-      current.map((item) =>
-        item.id === product.id
-          ? { ...item, supplyPlans: plans, stock: updatedStock, updated: "Just now" }
-          : item
-      )
-    );
-    fetch(`/api/admin/products/${encodeURIComponent(product.id)}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ supply_plans: plans, stock: updatedStock }),
-    }).catch(() => {});
-    setMovements((current) => [
-      {
+    try {
+      const response = await fetch(`/api/admin/products/${encodeURIComponent(product.id)}/inventory`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ delta, notes: reason.trim() }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.message || "Inventory adjustment could not be saved.");
+      const newStock = Number(body?.data?.newStock);
+      if (!Number.isFinite(newStock) || newStock < 0) throw new Error("Inventory service returned an invalid stock balance.");
+      onProductsChange((current) => current.map((item) =>
+        item.id === product.id ? { ...item, stock: newStock, updated: "Just now" } : item
+      ));
+      setMovements((current) => [{
         id: `STK-${Date.now()}`,
         productId: product.id,
-        variantId: planId,
-        variantTitle: plan.title,
+        variantId: "product",
+        variantTitle: "Product inventory",
         quantityChange: delta,
         reason: reason.trim(),
         createdAt: new Date().toISOString(),
-      },
-      ...current,
-    ]);
-    onToast(`Inventory updated for ${plan.title}.`);
-    return true;
+      }, ...current]);
+      onToast(`Inventory updated to ${newStock} units.`);
+      onRefresh?.();
+      return true;
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "Inventory adjustment could not be saved.");
+      return false;
+    }
   };
 
   const archive = () => {
@@ -505,6 +557,17 @@ export function ProductsPanel({
             <option>Draft</option>
             <option>Archived</option>
           </select>
+          <button
+            type="button"
+            className="button button-primary button-small inline-flex items-center gap-1.5 shrink-0"
+            onClick={() => {
+              setEditorProduct(null);
+              setIsCreatingNew(true);
+            }}
+          >
+            <Plus size={14} />
+            <span>Add product</span>
+          </button>
         </div>
       </div>
 
@@ -519,7 +582,7 @@ export function ProductsPanel({
         </span>
         <span className={lowStockCount ? "stock-low" : ""}>
           <Boxes size={14} />
-          {lowStockCount} low-stock plans
+          {lowStockCount} products below 11 units
         </span>
         <span>
           <ImagePlus size={14} />
@@ -552,7 +615,23 @@ export function ProductsPanel({
               </div>
             </article>;
           })}
-          {visibleProducts.length === 0 && <div className="empty-state">No products match this search.</div>}
+          {visibleProducts.length === 0 && (
+            <div className="empty-state flex flex-col items-center justify-center py-8 px-4 text-center">
+              <Package size={28} className="text-slate-300 mb-2" />
+              <p className="text-xs font-semibold text-slate-700 m-0">No products match this search</p>
+              <button
+                type="button"
+                className="button button-primary button-small inline-flex items-center gap-1.5 mt-3"
+                onClick={() => {
+                  setEditorProduct(null);
+                  setIsCreatingNew(true);
+                }}
+              >
+                <Plus size={13} />
+                <span>Add new product</span>
+              </button>
+            </div>
+          )}
         </div>
         <div className="table-wrap">
           <table className="commerce-table products-table">
@@ -686,7 +765,26 @@ export function ProductsPanel({
               {visibleProducts.length === 0 && (
                 <tr>
                   <td colSpan={9}>
-                    <div className="empty-state">No products match this search.</div>
+                    <div className="empty-state flex flex-col items-center justify-center py-10 px-4 text-center">
+                      <Package size={32} className="text-slate-300 mb-2" />
+                      <p className="text-sm font-semibold text-slate-700 m-0">No products found in catalog</p>
+                      <p className="text-xs text-slate-400 mt-1 mb-3">
+                        {query || statusFilter !== "All status"
+                          ? "Try clearing filters or search terms."
+                          : "Start building your clinical product catalog."}
+                      </p>
+                      <button
+                        type="button"
+                        className="button button-primary button-small inline-flex items-center gap-1.5"
+                        onClick={() => {
+                          setEditorProduct(null);
+                          setIsCreatingNew(true);
+                        }}
+                      >
+                        <Plus size={13} />
+                        <span>Add new product</span>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               )}
@@ -709,13 +807,14 @@ export function ProductsPanel({
         </span>
       </div>
 
-      {(editorProduct !== null || createProductOpen) && (
+      {(editorProduct !== null || createProductOpen || isCreatingNew) && (
         <ProductEditor
           product={editorProduct}
           categoryOptions={categoryOptions}
           rootCauseOptions={rootCauseOptions}
           onClose={() => {
             setEditorProduct(null);
+            setIsCreatingNew(false);
             onCreateHandled();
           }}
           onSave={saveProduct}
@@ -744,8 +843,8 @@ export function ProductsPanel({
         <StockAdjustmentDialog
           product={selectedStock}
           onClose={() => setStockProduct(null)}
-          onSave={(planId, delta, reason) => {
-            const ok = applyStockAdjustment(selectedStock, planId, delta, reason);
+          onSave={async (delta, reason) => {
+            const ok = await applyStockAdjustment(selectedStock, delta, reason);
             if (ok) setStockProduct(null);
             return ok;
           }}
@@ -802,6 +901,63 @@ export function ProductsPanel({
   );
 }
 
+const PRESET_CATEGORIES = [
+  "Scalp Serum",
+  "Anti-Hairfall Shampoo",
+  "Hair Growth Tablets",
+  "Nourishing Hair Oil",
+  "Conditioner",
+  "Scalp Roller & Tools",
+  "Clinical Regimen Kit",
+  "Anti-Dandruff Solution",
+];
+
+const PRESET_ROOT_CAUSES = [
+  "DHT Sensitivity",
+  "Hair Thinning",
+  "Dandruff & Flaking",
+  "Receding Hairline",
+  "Nutritional Deficiency",
+  "Scalp Inflammation",
+  "Stress / Telogen Effluvium",
+  "Postpartum Shedding",
+  "Thyroid Related",
+  "PCOS Hair Loss",
+];
+
+const SHIPPING_PRESETS = [
+  {
+    name: "Serum / Dropper Bottle",
+    desc: "Standard 60ml dropper",
+    profile: { weightKg: 0.25, lengthCm: 15, breadthCm: 10, heightCm: 5 },
+  },
+  {
+    name: "Shampoo / Cleanser 250ml",
+    desc: "Pump or flip bottle",
+    profile: { weightKg: 0.4, lengthCm: 20, breadthCm: 10, heightCm: 7 },
+  },
+  {
+    name: "Supplement Jar (60 Tabs)",
+    desc: "Nutritional / DHT blockers",
+    profile: { weightKg: 0.15, lengthCm: 12, breadthCm: 8, heightCm: 5 },
+  },
+  {
+    name: "Clinical Regimen Kit Box",
+    desc: "Complete treatment bundle",
+    profile: { weightKg: 0.75, lengthCm: 25, breadthCm: 18, heightCm: 10 },
+  },
+];
+
+const INGREDIENT_SUGGESTIONS: ProductIngredient[] = [
+  { name: "Redensyl", concentration: "", purpose: "" },
+  { name: "Procapil", concentration: "", purpose: "" },
+  { name: "Anagain", concentration: "", purpose: "" },
+  { name: "Biotin", concentration: "", purpose: "" },
+  { name: "Rosemary Extract", concentration: "", purpose: "" },
+  { name: "Saw Palmetto", concentration: "", purpose: "" },
+  { name: "Salicylic Acid", concentration: "", purpose: "" },
+];
+
 function ProductEditor({
   product,
   categoryOptions,
@@ -828,15 +984,40 @@ function ProductEditor({
 
   const [activeTab, setActiveTab] = useState<EditorTab>("general");
   const [form, setForm] = useState<ProductFormState>(() => formFor(product));
-  const [previews, setPreviews] = useState<PreviewMedia[]>([]);
+  const [previews, setPreviews] = useState<PreviewMedia[]>(() => {
+    if (!product) return [];
+    const initialMedia = product.media?.length
+      ? product.media
+      : (product.images || []).map((img, idx) => ({
+          name: img,
+          url: img,
+          kind: "image" as const,
+          isPrimary: idx === 0,
+        }));
+    return initialMedia.map((m) => ({ ...m, url: m.url || m.name }));
+  });
   const [imageToView, setImageToView] = useState<ViewerImage | null>(null);
   const [uploadMeta, setUploadMeta] = useState<Record<string, MediaItemMeta>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState("");
+  const [errorTab, setErrorTab] = useState<EditorTab | null>(null);
   const [showAdvancedPlans, setShowAdvancedPlans] = useState(false);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [isGeneratingSku, setIsGeneratingSku] = useState(false);
   const [rootCauseDraft, setRootCauseDraft] = useState("");
+  const [rawTextMode, setRawTextMode] = useState(false);
+  const [activeShippingPreset, setActiveShippingPreset] = useState<string | null>(null);
+  const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
+  const [touchedFields, setTouchedFields] = useState<Record<string, boolean>>({});
+  const isStep1Valid = Boolean(form.name.trim() && form.category.trim() && form.rootCauses.length > 0);
+  const isStep2Valid = form.price > 0 && form.supplyPlans.length > 0 && form.supplyPlans.every((plan) => {
+    const profile = plan.shippingProfile;
+    return [profile?.weightKg, profile?.lengthCm, profile?.breadthCm, profile?.heightCm]
+      .every((value) => Number.isFinite(Number(value)) && Number(value) > 0);
+  });
+
+  const markTouched = (fieldName: string) =>
+    setTouchedFields((prev) => (prev[fieldName] ? prev : { ...prev, [fieldName]: true }));
 
   const activeUrls = useRef<string[]>([]);
   const pendingUploadKeys = useRef(new Set<string>());
@@ -845,7 +1026,15 @@ function ProductEditor({
 
   const setField = <K extends keyof ProductFormState>(key: K, value: ProductFormState[K]) =>
     setForm((current) => ({ ...current, [key]: value }));
-  const allRootCauses = [...new Set([...rootCauseOptions, ...form.rootCauses])];
+
+  const mergedCategories = useMemo(() => {
+    return [...new Set([...PRESET_CATEGORIES, ...categoryOptions])].sort();
+  }, [categoryOptions]);
+
+  const allRootCauses = useMemo(() => {
+    return [...new Set([...PRESET_ROOT_CAUSES, ...rootCauseOptions, ...form.rootCauses])];
+  }, [rootCauseOptions, form.rootCauses]);
+
   const addRootCause = () => {
     const value = rootCauseDraft.trim();
     if (!value || form.rootCauses.some((item) => item.toLowerCase() === value.toLowerCase())) return;
@@ -853,10 +1042,22 @@ function ProductEditor({
     setRootCauseDraft("");
   };
 
+  const toggleRootCause = (tag: string) => {
+    setField(
+      "rootCauses",
+      form.rootCauses.includes(tag)
+        ? form.rootCauses.filter((item) => item !== tag)
+        : [...form.rootCauses, tag]
+    );
+  };
+
   useEffect(() => () => activeUrls.current.forEach((url) => URL.revokeObjectURL(url)), []);
 
   const uploadingCount = Object.values(uploadMeta).filter((m) => m.status === "uploading").length;
   const isUploading = uploadingCount > 0;
+
+  const progressPercent =
+    activeTab === "general" ? 25 : activeTab === "pricing" ? 50 : activeTab === "media" ? 75 : 100;
 
   const updatePrimaryPricing = (field: "price" | "mrp" | "unitCost" | "stock" | "sku", val: number | string) => {
     setForm((prev) => {
@@ -876,6 +1077,17 @@ function ProductEditor({
         supplyPlans: updatedPlans,
       };
     });
+  };
+
+  const applyShippingPreset = (preset: (typeof SHIPPING_PRESETS)[number]) => {
+    setActiveShippingPreset(preset.name);
+    setForm((prev) => ({
+      ...prev,
+      supplyPlans: prev.supplyPlans.map((plan, idx) =>
+        idx === 0 ? { ...plan, shippingProfile: { ...preset.profile } } : plan
+      ),
+    }));
+    onToast(`Applied ${preset.name} parcel profile (${preset.profile.weightKg} kg).`);
   };
 
   const generateSkuWithAnimation = () => {
@@ -910,7 +1122,7 @@ function ProductEditor({
         xhr.onload = () => {
           activeUploadRequests.current.delete(tempId);
           let responseBody: MediaUploadResponse = {};
-          try { responseBody = JSON.parse(xhr.responseText) as MediaUploadResponse; } catch { /* malformed JSON handled below */ }
+          try { responseBody = JSON.parse(xhr.responseText) as MediaUploadResponse; } catch { /* handled below */ }
           resolve({ ok: xhr.status >= 200 && xhr.status < 300, body: responseBody });
         };
         xhr.onerror = () => {
@@ -982,9 +1194,9 @@ function ProductEditor({
       });
 
       const savings = selectedVariant.bytes > 0 && original.bytes > 0 && selectedVariant.bytes < original.bytes
-        ? ` · AI-ready image is ${Math.round((1 - selectedVariant.bytes / original.bytes) * 100)}% smaller`
+        ? ` · Optimized image is ${Math.round((1 - selectedVariant.bytes / original.bytes) * 100)}% smaller`
         : "";
-      onToast(`Uploaded ${file.name} and preserved its original in R2${savings}.`);
+      onToast(`Uploaded ${file.name} to Cloudflare R2${savings}.`);
       return cloudUrl;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : `Failed to upload ${file.name}`;
@@ -1006,15 +1218,26 @@ function ProductEditor({
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
 
-      // Smart image preparation and the backend both enforce 25 MiB per file.
       if (file.size > 25 * 1024 * 1024) {
         onToast(`"${file.name}" exceeds the 25 MiB limit. Choose a smaller image.`);
         continue;
       }
 
-      const isSupportedImageMime = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif", "image/heic", "image/heif"].includes(file.type.toLowerCase());
-      const hasSupportedImageExtension = /\.(jpe?g|png|webp|gif|avif|heic|heif)$/i.test(file.name);
-      const isImage = isSupportedImageMime || (!file.type && hasSupportedImageExtension);
+      const mime = (file.type || "").toLowerCase();
+      const ext = file.name.split(".").pop()?.toLowerCase() || "";
+      const isSupportedMime = [
+        "image/jpeg",
+        "image/jpg",
+        "image/pjpeg",
+        "image/png",
+        "image/webp",
+        "image/gif",
+        "image/avif",
+        "image/heic",
+        "image/heif",
+      ].includes(mime);
+      const isSupportedExt = ["jpg", "jpeg", "png", "webp", "gif", "avif", "heic", "heif"].includes(ext);
+      const isImage = isSupportedMime || isSupportedExt;
 
       if (!isImage) {
         onToast(`"${file.name}" is not supported. Choose a JPG, PNG, WebP, AVIF, HEIC, HEIF, or GIF image.`);
@@ -1031,7 +1254,6 @@ function ProductEditor({
 
     if (validFiles.length === 0) return;
 
-    // Immediately add optimistic previews to state
     setPreviews((current) => [
       ...current,
       ...validFiles.map((v) => ({ name: v.tempId, url: v.localUrl, kind: v.kind })),
@@ -1057,7 +1279,6 @@ function ProductEditor({
       };
     });
 
-    // Run parallel uploads
     await Promise.allSettled(
       validFiles.map((v) => uploadSingleMediaFile(v.file, v.tempId, v.kind))
     );
@@ -1142,6 +1363,27 @@ function ProductEditor({
       ),
     }));
 
+  const updatePlanShippingProfile = (
+    index: number,
+    field: keyof NonNullable<ProductSupplyPlan["shippingProfile"]>,
+    value: string,
+  ) => setForm((current) => ({
+    ...current,
+    supplyPlans: current.supplyPlans.map((plan, planIndex) => planIndex === index
+      ? {
+        ...plan,
+        shippingProfile: {
+          weightKg: 0,
+          lengthCm: 0,
+          breadthCm: 0,
+          heightCm: 0,
+          ...plan.shippingProfile,
+          [field]: Number(value) || 0,
+        },
+      }
+      : plan),
+  }));
+
   const updateMedia = (index: number, patch: Partial<ProductMedia>) =>
     setField(
       "media",
@@ -1179,32 +1421,173 @@ function ProductEditor({
     }
   };
 
-  const handleSubmit = async () => {
+  // Structured Clinical Builders State Helpers
+  const addBenefitItem = (item: ProductBenefit = { title: "", description: "" }) => {
+    setForm((prev) => ({
+      ...prev,
+      benefits: [...(prev.benefits || []), item],
+    }));
+  };
+
+  const updateBenefitItem = (index: number, field: keyof ProductBenefit, value: string) => {
+    setForm((prev) => ({
+      ...prev,
+      benefits: (prev.benefits || []).map((b, i) => (i === index ? { ...b, [field]: value } : b)),
+    }));
+  };
+
+  const removeBenefitItem = (index: number) => {
+    setForm((prev) => ({
+      ...prev,
+      benefits: (prev.benefits || []).filter((_, i) => i !== index),
+    }));
+  };
+
+  const addIngredientItem = (item: ProductIngredient = { name: "", concentration: "", purpose: "" }) => {
+    setForm((prev) => ({
+      ...prev,
+      ingredients: [...(prev.ingredients || []), item],
+    }));
+  };
+
+  const updateIngredientItem = (index: number, field: keyof ProductIngredient, value: string) => {
+    setForm((prev) => ({
+      ...prev,
+      ingredients: (prev.ingredients || []).map((item, i) => (i === index ? { ...item, [field]: value } : item)),
+    }));
+  };
+
+  const removeIngredientItem = (index: number) => {
+    setForm((prev) => ({
+      ...prev,
+      ingredients: (prev.ingredients || []).filter((_, i) => i !== index),
+    }));
+  };
+
+  const addUsageStepItem = (step: ProductUsageStep = { title: `Step ${(form.usageSteps?.length || 0) + 1}`, description: "" }) => {
+    setForm((prev) => ({
+      ...prev,
+      usageSteps: [...(prev.usageSteps || []), step],
+    }));
+  };
+
+  const updateUsageStepItem = (index: number, field: keyof ProductUsageStep, value: string) => {
+    setForm((prev) => ({
+      ...prev,
+      usageSteps: (prev.usageSteps || []).map((s, i) => (i === index ? { ...s, [field]: value } : s)),
+    }));
+  };
+
+  const removeUsageStepItem = (index: number) => {
+    setForm((prev) => ({
+      ...prev,
+      usageSteps: (prev.usageSteps || []).filter((_, i) => i !== index),
+    }));
+  };
+
+  const addClinicalClaimItem = (claim: ProductClinicalClaim = { percentage: "", claim: "", source: "" }) => {
+    setForm((prev) => ({
+      ...prev,
+      clinicalClaims: [...(prev.clinicalClaims || []), claim],
+    }));
+  };
+
+  const updateClinicalClaimItem = (index: number, field: keyof ProductClinicalClaim, value: string) => {
+    setForm((prev) => ({
+      ...prev,
+      clinicalClaims: (prev.clinicalClaims || []).map((c, i) => (i === index ? { ...c, [field]: value } : c)),
+    }));
+  };
+
+  const removeClinicalClaimItem = (index: number) => {
+    setForm((prev) => ({
+      ...prev,
+      clinicalClaims: (prev.clinicalClaims || []).filter((_, i) => i !== index),
+    }));
+  };
+
+  const validateBeforeContinue = (currentTab: EditorTab): boolean => {
     setFormError("");
+    setErrorTab(null);
+
+    if (currentTab === "general") {
+      if (!form.name.trim()) {
+        setHasAttemptedSubmit(true);
+        markTouched("name");
+        setFormError("Product / medicine name is required.");
+        setErrorTab("general");
+        return false;
+      }
+      if (!form.category.trim()) {
+        setHasAttemptedSubmit(true);
+        markTouched("category");
+        setFormError("Please select or enter a shop category.");
+        setErrorTab("general");
+        return false;
+      }
+      if (form.rootCauses.length === 0) {
+        setHasAttemptedSubmit(true);
+        setFormError("Select at least one clinical concern tag so patients can find this medicine.");
+        setErrorTab("general");
+        return false;
+      }
+    } else if (currentTab === "pricing") {
+      if (!form.price || Number(form.price) <= 0) {
+        setHasAttemptedSubmit(true);
+        markTouched("price");
+        setFormError("Selling price must be greater than ₹0.");
+        setErrorTab("pricing");
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const handleNextTab = () => {
+    if (!validateBeforeContinue(activeTab)) return;
+
+    if (activeTab === "general") setActiveTab("pricing");
+    else if (activeTab === "pricing") setActiveTab("media");
+    else if (activeTab === "media") setActiveTab("clinical");
+  };
+
+  const handleSubmit = async () => {
+    setHasAttemptedSubmit(true);
+    setFormError("");
+    setErrorTab(null);
+
     if (!form.name.trim()) {
       setActiveTab("general");
-      setFormError("Product / medicine name is required.");
+      setErrorTab("general");
+      markTouched("name");
+      setFormError("Product / medicine name is required before saving.");
       return;
     }
-    if (!form.category) {
+    if (!form.category.trim()) {
       setActiveTab("general");
+      setErrorTab("general");
+      markTouched("category");
       setFormError("Product category is required.");
       return;
     }
     if (form.rootCauses.length === 0) {
       setActiveTab("general");
+      setErrorTab("general");
       setFormError("Add at least one concern tag so patients can find this product.");
       return;
     }
-    if (!form.price || form.price <= 0) {
+    if (!form.price || Number(form.price) <= 0) {
       setActiveTab("pricing");
-      setFormError("Selling price must be greater than 0.");
+      setErrorTab("pricing");
+      markTouched("price");
+      setFormError("Selling price must be greater than ₹0.");
       return;
     }
 
     if (isUploading) {
       setActiveTab("media");
-      setFormError(`Please wait for ${uploadingCount} photo upload${uploadingCount > 1 ? "s" : ""} to complete.`);
+      setErrorTab("media");
+      setFormError(`Please wait for ${uploadingCount} photo upload${uploadingCount > 1 ? "s" : ""} to finish.`);
       return;
     }
 
@@ -1216,294 +1599,543 @@ function ProductEditor({
         onClose();
       }
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Failed to save product to database.");
+      const message = err instanceof Error ? err.message : "Failed to save product to database.";
+      setFormError(message);
+      if (message.toLowerCase().includes("name") || message.toLowerCase().includes("category") || message.toLowerCase().includes("concern")) {
+        setErrorTab("general");
+      } else if (message.toLowerCase().includes("price") || message.toLowerCase().includes("mrp") || message.toLowerCase().includes("parcel") || message.toLowerCase().includes("plan")) {
+        setErrorTab("pricing");
+      }
     } finally {
       setIsSaving(false);
     }
   };
 
-  // Calculations for Margin / Profit summary
-  const discountPercent = form.mrp > form.price
-    ? Math.round(((form.mrp - form.price) / form.mrp) * 100)
+  // Margin / discount calculation
+  const leadPlan = form.supplyPlans[0] ?? newPlan();
+  const leadPrice = Number(form.price) || 0;
+  const leadMrp = Number(form.mrp) || 0;
+  const discountPercent = leadMrp > leadPrice && leadPrice > 0
+    ? Math.round(((leadMrp - leadPrice) / leadMrp) * 100)
     : null;
+  const savingsAmount = leadMrp > leadPrice ? leadMrp - leadPrice : 0;
 
   return (
     <>
       <Modal
         className="product-editor-modal"
+        hideFooter={true}
         title={
-          <div className="flex flex-wrap items-center gap-2.5">
-            <h2 className="text-base font-bold text-slate-800 m-0 tracking-tight">
-              {product ? `Edit · ${product.name || "Medicine"}` : "Add medicine / product"}
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-base font-bold text-slate-800 m-0 tracking-tight flex items-center gap-2">
+              <span className="p-1 rounded-lg bg-teal-50 text-teal-700 border border-teal-200/80">
+                <Package size={16} />
+              </span>
+              <span>{product ? `Edit · ${product.name || "Medicine"}` : "Add Medicine / Product"}</span>
             </h2>
-            <span className="inline-flex items-center text-[10px] font-semibold text-teal-700 bg-teal-50 border border-teal-200/80 rounded-full px-2 py-0.5">
-              {form.category || "Catalog"}
+            <span className="inline-flex items-center text-[10px] font-semibold text-teal-800 bg-teal-50 border border-teal-200/80 rounded-full px-2.5 py-0.5">
+              {form.category || "Hair Care"}
             </span>
-            {form.price > 0 && (
-              <span className="inline-flex items-center text-[10px] font-bold text-slate-700 bg-slate-100 rounded-full px-2 py-0.5">
-                ₹{form.price}
+            {leadPrice > 0 && (
+              <span className="inline-flex items-center text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-0.5">
+                ₹{leadPrice}
               </span>
             )}
             {form.media.length > 0 && (
-              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-500 bg-slate-50 border border-slate-200 rounded-full px-2 py-0.5">
+              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-600 bg-slate-100 rounded-full px-2 py-0.5">
                 <ImagePlus size={11} className="text-teal-600" />
                 {form.media.length} photo{form.media.length > 1 ? "s" : ""}
               </span>
             )}
           </div>
         }
-        description="Configure product clinical details, real-time inventory, pricing, and high-resolution Cloudflare R2 media."
-        submitLabel={
-          isUploading ? (
-            <span className="inline-flex items-center gap-2">
-              <Loader2 size={14} className="animate-spin text-white" />
-              <span>Uploading media ({uploadingCount})...</span>
-            </span>
-          ) : isSaving ? (
-            <span className="inline-flex items-center gap-2">
-              <Loader2 size={14} className="animate-spin text-white" />
-              <span>Saving product...</span>
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5">
-              <Check size={14} />
-              <span>{product ? "Save product" : "Add to catalog"}</span>
-            </span>
-          )
-        }
-        submitDisabled={isUploading || isSaving}
+        description="Configure product clinical classification, real-time inventory, pricing, courier shipping parcel, and high-resolution Cloudflare R2 media."
         onClose={handleClose}
         onSubmit={() => void handleSubmit()}
       >
-        {/* Navigation Tabs */}
-        <div className="product-editor-nav" role="tablist" aria-label="Product editor tabs">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "general"}
-            className={`product-editor-tab ${activeTab === "general" ? "active" : ""}`}
-            onClick={() => setActiveTab("general")}
-          >
-            <Package size={13} />
-            <span>01 · Listing & Tags</span>
-            {form.name.trim() && <span className="tab-badge">✓</span>}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "pricing"}
-            className={`product-editor-tab ${activeTab === "pricing" ? "active" : ""}`}
-            onClick={() => setActiveTab("pricing")}
-          >
-            <Boxes size={13} />
-            <span>02 · Pricing & Stock</span>
-            {form.price > 0 && <span className="tab-badge">₹{form.price}</span>}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "media"}
-            className={`product-editor-tab ${activeTab === "media" ? "active" : ""}`}
-            onClick={() => setActiveTab("media")}
-          >
-            <ImagePlus size={13} />
-            <span>03 · Media Gallery</span>
-            <span className="tab-badge">
-              {isUploading ? <Loader2 size={10} className="animate-spin" /> : form.media.length}
-            </span>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "clinical"}
-            className={`product-editor-tab ${activeTab === "clinical" ? "active" : ""}`}
-            onClick={() => setActiveTab("clinical")}
-          >
-            <BadgeCheck size={13} />
-            <span>04 · Clinical & Usage</span>
-          </button>
-        </div>
-
-        {formError && (
-          <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800 flex items-center justify-between gap-2 animate-in fade-in slide-in-from-top-1 duration-150">
-            <div className="flex items-center gap-2">
-              <AlertTriangle size={15} className="text-rose-600 shrink-0" />
-              <span className="font-medium">{formError}</span>
-            </div>
+        {/* Step-by-Step Stepper Navigation */}
+        <div className="product-stepper-container">
+          <div className="product-editor-nav" role="tablist" aria-label="Product wizard steps">
             <button
               type="button"
-              className="text-rose-600 hover:text-rose-800 p-0.5 rounded"
-              onClick={() => setFormError("")}
-              aria-label="Dismiss error"
+              role="tab"
+              aria-selected={activeTab === "general"}
+              className={`product-editor-tab ${activeTab === "general" ? "active" : ""}`}
+              onClick={() => setActiveTab("general")}
             >
-              <X size={13} />
+              <Package size={14} />
+              <span>01 · Basics & Category</span>
+              {isStep1Valid ? (
+                <span className="tab-badge" title="Basics completed">✓</span>
+              ) : (
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" title="Required fields needed" />
+              )}
             </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "pricing"}
+              className={`product-editor-tab ${activeTab === "pricing" ? "active" : ""}`}
+              onClick={() => setActiveTab("pricing")}
+            >
+              <Boxes size={14} />
+              <span>02 · Pricing & Shipping</span>
+              {isStep2Valid ? (
+                <span className="tab-badge" title="Pricing completed">₹{leadPrice}</span>
+              ) : (
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" title="Required pricing needed" />
+              )}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "media"}
+              className={`product-editor-tab ${activeTab === "media" ? "active" : ""}`}
+              onClick={() => setActiveTab("media")}
+            >
+              <ImagePlus size={14} />
+              <span>03 · Photos & Gallery</span>
+              <span className="tab-badge">
+                {isUploading ? <Loader2 size={10} className="animate-spin" /> : form.media.length}
+              </span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "clinical"}
+              className={`product-editor-tab ${activeTab === "clinical" ? "active" : ""}`}
+              onClick={() => setActiveTab("clinical")}
+            >
+              <BadgeCheck size={14} />
+              <span>04 · Clinical & How to Use</span>
+              {((form.benefits?.length || 0) + (form.ingredients?.length || 0) > 0) && (
+                <span className="tab-badge">
+                  {(form.benefits?.length || 0) + (form.ingredients?.length || 0)} items
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* Animated Stepper Progress Bar */}
+          <div className="product-stepper-progress-bg">
+            <div
+              className="product-stepper-progress-fill"
+              style={{ width: `${progressPercent}%` }}
+              role="progressbar"
+              aria-valuenow={progressPercent}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            />
+          </div>
+        </div>
+
+        {/* Global Error Banner with Instant Jump-to-Field */}
+        {formError && (
+          <div className="wizard-error-banner rounded-xl border border-rose-200 bg-rose-50/95 p-3 text-xs text-rose-800 flex items-center justify-between gap-3 shadow-xs mb-3">
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={16} className="text-rose-600 shrink-0" />
+              <span className="font-semibold">{formError}</span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {errorTab && errorTab !== activeTab && (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 bg-rose-100 hover:bg-rose-200 px-2 py-1 rounded-md transition-colors"
+                  onClick={() => {
+                    setActiveTab(errorTab);
+                    setErrorTab(null);
+                  }}
+                >
+                  <span>Fix in Step {errorTab === "general" ? "1" : errorTab === "pricing" ? "2" : errorTab === "media" ? "3" : "4"}</span>
+                  <ArrowRight size={11} />
+                </button>
+              )}
+              <button
+                type="button"
+                className="text-rose-600 hover:text-rose-800 p-1 rounded hover:bg-rose-100"
+                onClick={() => setFormError("")}
+                aria-label="Dismiss error"
+              >
+                <X size={14} />
+              </button>
+            </div>
           </div>
         )}
 
-        {/* SECTION 1: STORE LISTING */}
+        {/* STEP 1: BASICS & CATEGORY */}
         {activeTab === "general" && (
-          <div className="product-editor-section animate-in fade-in duration-200">
+          <div className="product-editor-section wizard-step-panel">
             <div className="product-editor-section-head">
               <div>
-                <h3>Store listing & details</h3>
-                <p>Define product name, category, live visibility in patient app, and clinical concern tags.</p>
+                <h3 className="flex items-center gap-2">
+                  <span>Store listing & patient classification</span>
+                  {isStep1Valid ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
+                      <CheckCircle2 size={11} className="text-emerald-600" /> Step Completed
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-full px-2 py-0.5">
+                      {3 - ((form.name.trim() ? 1 : 0) + (form.category.trim() ? 1 : 0) + (form.rootCauses.length > 0 ? 1 : 0))} fields required
+                    </span>
+                  )}
+                </h3>
+                <p>Define product name, category, patient app live status, and concern tags for the recommendation engine.</p>
               </div>
               <span className="product-section-number">01</span>
             </div>
+
             <div className="product-form-grid">
+              {/* Product Name */}
               <div className="field">
-                <label htmlFor="product-name">Product / medicine name *</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label htmlFor="product-name" className="flex items-center gap-1.5 font-semibold text-slate-700">
+                    <span>Product / Medicine name</span>
+                    <span className="field-badge-required">Required *</span>
+                  </label>
+                  {form.name.trim() ? (
+                    <span className="text-[10px] text-emerald-600 font-medium flex items-center gap-1">
+                      <Check size={11} /> Valid
+                    </span>
+                  ) : null}
+                </div>
                 <input
                   id="product-name"
                   value={form.name}
                   onChange={(event) => setField("name", event.target.value)}
-                  placeholder="e.g. Daily Scalp Serum 60ml"
+                  onBlur={() => markTouched("name")}
+                  placeholder="e.g. Daily Scalp Nourishing Serum 60ml"
+                  className={!form.name.trim() && (hasAttemptedSubmit || touchedFields["name"]) ? "border-rose-300 ring-2 ring-rose-100" : ""}
                   required
                 />
+                {!form.name.trim() && (hasAttemptedSubmit || touchedFields["name"]) ? (
+                  <p className="text-[11px] text-rose-600 mt-1 flex items-center gap-1 font-medium">
+                    <AlertTriangle size={12} className="shrink-0" />
+                    <span>Please enter the medicine or product name.</span>
+                  </p>
+                ) : (
+                  <span className="text-[10px] text-slate-400 mt-1">Displayed as the primary product title across the Dr. Hair mobile app.</span>
+                )}
               </div>
+
+              {/* Shop Category with Quick Preset Chips */}
               <div className="field">
-                <label htmlFor="product-category">Shop category *</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label htmlFor="product-category" className="flex items-center gap-1.5 font-semibold text-slate-700">
+                    <span>Shop category</span>
+                    <span className="field-badge-required">Required *</span>
+                  </label>
+                  {form.category.trim() ? (
+                    <span className="text-[10px] text-emerald-600 font-medium flex items-center gap-1">
+                      <Check size={11} /> Selected
+                    </span>
+                  ) : null}
+                </div>
                 <input
                   id="product-category"
                   list="product-category-options"
                   value={form.category}
                   onChange={(event) => setField("category", event.target.value)}
-                  placeholder="Enter or choose a category"
+                  onBlur={() => markTouched("category")}
+                  placeholder="Choose or enter custom category"
+                  className={!form.category.trim() && (hasAttemptedSubmit || touchedFields["category"]) ? "border-rose-300 ring-2 ring-rose-100" : ""}
                   required
                 />
                 <datalist id="product-category-options">
-                  {categoryOptions.map((cat) => (
+                  {mergedCategories.map((cat) => (
                     <option key={cat} value={cat} />
                   ))}
                 </datalist>
+                {!form.category.trim() && (hasAttemptedSubmit || touchedFields["category"]) ? (
+                  <p className="text-[11px] text-rose-600 mt-1 flex items-center gap-1 font-medium">
+                    <AlertTriangle size={12} className="shrink-0" />
+                    <span>Please select or enter a shop category.</span>
+                  </p>
+                ) : null}
+
+                {/* 1-Click Category Preset Chips */}
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <span className="text-[10px] text-slate-400 font-medium self-center mr-1">Quick choose:</span>
+                  {PRESET_CATEGORIES.slice(0, 5).map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      className={`quick-select-chip ${form.category === cat ? "selected" : ""}`}
+                      onClick={() => {
+                        setField("category", cat);
+                        markTouched("category");
+                      }}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
               </div>
+
+              {/* Store Status */}
               <div className="field">
-                <label htmlFor="product-status">Store status</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label htmlFor="product-status" className="flex items-center gap-1.5 font-semibold text-slate-700">
+                    <span>Publishing status</span>
+                    <span className="field-badge-optional">Optional</span>
+                  </label>
+                </div>
                 <select
                   id="product-status"
                   value={form.status}
                   onChange={(event) => setField("status", event.target.value as ProductStatus)}
+                  className="bg-white"
                 >
-                  <option value="Active">Active (Live in app)</option>
-                  <option value="Draft">Draft (Hidden)</option>
-                  <option value="Archived">Archived</option>
+                  <option value="Active">🟢 Active (Immediately live in patient app)</option>
+                  <option value="Draft">🟡 Draft (Saved in catalog, hidden from shop)</option>
+                  <option value="Archived">⚪ Archived (Discontinued from new orders)</option>
                 </select>
               </div>
-              <div className="field">
-                <span className="field-label">Concern tags (used for patient filtering)</span>
-                <div className="tag-choice-list">
-                  {allRootCauses.map((tag) => (
-                    <label key={tag} className={`tag-choice ${form.rootCauses.includes(tag) ? "selected" : ""}`}>
-                      <input
-                        type="checkbox"
-                        checked={form.rootCauses.includes(tag)}
-                        onChange={(event) =>
-                          setField(
-                            "rootCauses",
-                            event.target.checked
-                              ? [...form.rootCauses, tag]
-                              : form.rootCauses.filter((item) => item !== tag)
-                          )
-                        }
-                      />
-                      {tag}
-                    </label>
-                  ))}
+
+              {/* Clinical Concern Tags */}
+              <div className="field field-span">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="flex items-center gap-1.5 font-semibold text-slate-700 text-xs">
+                    <span>Clinical concern tags (Patient matching & filters)</span>
+                    <span className="field-badge-required">Required *</span>
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-medium">
+                    {form.rootCauses.length} concern{form.rootCauses.length === 1 ? "" : "s"} selected
+                  </span>
                 </div>
-                <div className="mt-2 flex gap-2">
+                <p className="text-[11px] text-slate-500 mb-2">
+                  Patients taking the hair assessment will receive recommendations based on these tags:
+                </p>
+
+                {/* Preset Concern Chips */}
+                <div className="flex flex-wrap gap-1.5 mb-2.5">
+                  {allRootCauses.map((tag) => {
+                    const isSelected = form.rootCauses.includes(tag);
+                    return (
+                      <button
+                        key={tag}
+                        type="button"
+                        className={`quick-select-chip ${isSelected ? "selected" : ""}`}
+                        onClick={() => toggleRootCause(tag)}
+                      >
+                        {isSelected && <Check size={11} className="text-teal-700" />}
+                        <span>{tag}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Add Custom Concern Tag */}
+                <div className="flex items-center gap-2 max-w-md">
                   <input
-                    aria-label="Add a concern tag"
+                    aria-label="Add a custom concern tag"
                     value={rootCauseDraft}
                     onChange={(event) => setRootCauseDraft(event.target.value)}
-                    onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addRootCause(); } }}
-                    placeholder="Add another concern"
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        addRootCause();
+                      }
+                    }}
+                    placeholder="Add custom concern tag (e.g. Scalp Psoriasis)..."
+                    className="text-xs"
                   />
-                  <button type="button" className="button button-secondary button-small" onClick={addRootCause} disabled={!rootCauseDraft.trim()}>Add</button>
+                  <button
+                    type="button"
+                    className="button button-secondary button-small shrink-0"
+                    onClick={addRootCause}
+                    disabled={!rootCauseDraft.trim()}
+                  >
+                    <Plus size={13} />
+                    <span>Add</span>
+                  </button>
                 </div>
+
+                {form.rootCauses.length === 0 && hasAttemptedSubmit && (
+                  <p className="text-[11px] text-rose-600 mt-2 flex items-center gap-1 font-medium">
+                    <AlertTriangle size={12} className="shrink-0" />
+                    <span>Please select at least one clinical concern tag for patient matching.</span>
+                  </p>
+                )}
               </div>
+
+              {/* Product Description */}
               <div className="field field-span">
-                <label htmlFor="product-description">Shop description</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label htmlFor="product-description" className="flex items-center gap-1.5 font-semibold text-slate-700">
+                    <span>Shop description</span>
+                    <span className="field-badge-optional">Optional</span>
+                  </label>
+                  <span className="text-[10px] text-slate-400">
+                    {form.description.length} characters
+                  </span>
+                </div>
                 <textarea
                   id="product-description"
                   className="product-description-input"
+                  rows={3}
                   value={form.description}
                   onChange={(event) => setField("description", event.target.value)}
-                  placeholder="Describe the medicine or product, benefits, and how patients should use it."
+                  placeholder="Describe key benefits, hair formulation, and patient expectations..."
                 />
               </div>
             </div>
 
-            {activeTab === "general" && (
-              <div className="flex justify-end pt-2">
+            {/* Step 1 Footer */}
+            <div className="product-step-footer">
+              <button
+                type="button"
+                className="button button-secondary button-small"
+                onClick={handleClose}
+              >
+                Cancel
+              </button>
+              <div className="flex items-center gap-1.5 text-xs text-slate-500 font-medium">
+                <span className="w-2 h-2 rounded-full bg-teal-600" />
+                <span className="w-2 h-2 rounded-full bg-slate-200" />
+                <span className="w-2 h-2 rounded-full bg-slate-200" />
+                <span className="w-2 h-2 rounded-full bg-slate-200" />
+                <span className="ml-1 text-[11px]">Step 1 of 4</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {product && isStep1Valid && (
+                  <button
+                    type="button"
+                    className="button button-secondary button-small text-teal-700 hover:text-teal-800 border-teal-200 inline-flex items-center gap-1"
+                    onClick={() => void handleSubmit()}
+                    disabled={isUploading || isSaving}
+                    title="Quick save changes"
+                  >
+                    {isSaving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                    <span>Quick save</span>
+                  </button>
+                )}
                 <button
                   type="button"
-                  className="button button-secondary button-small"
-                  onClick={() => setActiveTab("pricing")}
+                  className="button button-primary button-small inline-flex items-center gap-1.5"
+                  onClick={handleNextTab}
                 >
-                  <span>Continue to Pricing & Stock</span>
+                  <span>Continue to Pricing</span>
                   <ArrowRight size={13} />
                 </button>
               </div>
-            )}
+            </div>
           </div>
         )}
 
-        {/* SECTION 2: PRICING & INVENTORY */}
+        {/* STEP 2: PRICING & SHIPPING */}
         {activeTab === "pricing" && (
-          <div className="product-editor-section animate-in fade-in duration-200">
+          <div className="product-editor-section wizard-step-panel">
             <div className="product-editor-section-head">
               <div>
-                <h3>Pricing & stock</h3>
-                <p>Set selling price, retail MRP, opening inventory, and product SKU.</p>
+                <h3 className="flex items-center gap-2">
+                  <span>Pricing, inventory & courier parcel</span>
+                  {isStep2Valid ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
+                      <CheckCircle2 size={11} className="text-emerald-600" /> Pricing Configured
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-full px-2 py-0.5">
+                      Selling price required
+                    </span>
+                  )}
+                </h3>
+                <p>Set selling price, retail MRP, inventory stock, SKU, and parcel measurements for courier quotes.</p>
               </div>
               <span className="product-section-number">02</span>
             </div>
 
             {/* Live Pricing & Margin Insight Pill */}
-            {form.price > 0 && (
-              <div className="flex flex-wrap items-center gap-2.5 text-xs bg-slate-50 border border-slate-200/80 rounded-xl p-3">
-                <div className="flex items-center gap-1.5 font-semibold text-slate-700">
-                  <TrendingUp size={14} className="text-teal-600 shrink-0" />
-                  <span>Selling Price: ₹{form.price}</span>
+            {leadPrice > 0 && (
+              <div className="flex flex-wrap items-center gap-3 text-xs bg-gradient-to-r from-teal-50/80 to-slate-50 border border-teal-200/80 rounded-xl p-3 shadow-2xs mb-2">
+                <div className="flex items-center gap-1.5 font-bold text-teal-900">
+                  <TrendingUp size={15} className="text-teal-600 shrink-0" />
+                  <span>Selling Price: ₹{leadPrice}</span>
                 </div>
                 {discountPercent !== null && discountPercent > 0 && (
-                  <span className="inline-flex items-center text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
-                    {discountPercent}% OFF MRP
+                  <span className="inline-flex items-center text-[10px] font-bold text-emerald-800 bg-emerald-100/80 border border-emerald-200 rounded-full px-2.5 py-0.5">
+                    {discountPercent}% OFF MRP (₹{savingsAmount} saved per patient)
                   </span>
                 )}
-                <span className="text-[10px] text-slate-400 ml-auto">
-                  Stock: {form.stock} units
+                <span className="text-[11px] font-medium text-slate-500 ml-auto">
+                  Available Stock: <strong className="text-slate-700">{form.stock} units</strong>
                 </span>
               </div>
             )}
 
             <div className="product-form-grid">
+              {/* Selling Price */}
               <div className="field">
-                <label htmlFor="product-price">Selling price (₹) *</label>
-                <input
-                  id="product-price"
-                  type="number"
-                  min="1"
-                  value={form.price || ""}
-                  onChange={(e) => updatePrimaryPricing("price", e.target.value)}
-                  placeholder="499"
-                  required
-                />
+                <div className="flex items-center justify-between mb-1">
+                  <label htmlFor="product-price" className="flex items-center gap-1.5 font-semibold text-slate-700">
+                    <span>Selling price (₹)</span>
+                    <span className="field-badge-required">Required *</span>
+                  </label>
+                  {leadPrice > 0 ? (
+                    <span className="text-[10px] text-emerald-600 font-medium flex items-center gap-1">
+                      <Check size={11} /> Valid
+                    </span>
+                  ) : null}
+                </div>
+                <div className="relative flex items-center">
+                  <span className="absolute left-3 text-slate-400 font-semibold text-xs">₹</span>
+                  <input
+                    id="product-price"
+                    type="number"
+                    min="1"
+                    value={form.price || ""}
+                    onChange={(e) => updatePrimaryPricing("price", e.target.value)}
+                    onBlur={() => markTouched("price")}
+                    placeholder="499"
+                    className={`pl-7 ${(!form.price || Number(form.price) <= 0) && (hasAttemptedSubmit || touchedFields["price"]) ? "border-rose-300 ring-2 ring-rose-100" : ""}`}
+                    required
+                  />
+                </div>
+                {(!form.price || Number(form.price) <= 0) && (hasAttemptedSubmit || touchedFields["price"]) ? (
+                  <p className="text-[11px] text-rose-600 mt-1 flex items-center gap-1 font-medium">
+                    <AlertTriangle size={12} className="shrink-0" />
+                    <span>Selling price must be greater than ₹0.</span>
+                  </p>
+                ) : (
+                  <span className="text-[10px] text-slate-400 mt-1">Final amount charged to patient at checkout.</span>
+                )}
               </div>
+
+              {/* Retail MRP */}
               <div className="field">
-                <label htmlFor="product-mrp">Original MRP (₹)</label>
-                <input
-                  id="product-mrp"
-                  type="number"
-                  min="0"
-                  value={form.mrp || ""}
-                  onChange={(e) => updatePrimaryPricing("mrp", e.target.value)}
-                  placeholder="699"
-                />
+                <div className="flex items-center justify-between mb-1">
+                  <label htmlFor="product-mrp" className="flex items-center gap-1.5 font-semibold text-slate-700">
+                    <span>Retail MRP (₹)</span>
+                    <span className="field-badge-optional">Optional</span>
+                  </label>
+                  {leadMrp > 0 && leadMrp < leadPrice && (
+                    <span className="text-[10px] text-amber-600 font-medium">
+                      MRP is lower than price
+                    </span>
+                  )}
+                </div>
+                <div className="relative flex items-center">
+                  <span className="absolute left-3 text-slate-400 font-semibold text-xs">₹</span>
+                  <input
+                    id="product-mrp"
+                    type="number"
+                    min="0"
+                    value={form.mrp || ""}
+                    onChange={(e) => updatePrimaryPricing("mrp", e.target.value)}
+                    placeholder="699"
+                    className="pl-7"
+                  />
+                </div>
+                <span className="text-[10px] text-slate-400 mt-1">Leave empty to match selling price automatically.</span>
               </div>
+
+              {/* Available Stock */}
               <div className="field">
-                <label htmlFor="product-stock">Available stock (units) *</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label htmlFor="product-stock" className="flex items-center gap-1.5 font-semibold text-slate-700">
+                    <span>{product ? "Current stock (units)" : "Initial stock (units)"}</span>
+                    {!product && <span className="field-badge-required">Required *</span>}
+                  </label>
+                </div>
                 <input
                   id="product-stock"
                   type="number"
@@ -1511,47 +2143,194 @@ function ProductEditor({
                   value={form.stock}
                   onChange={(e) => updatePrimaryPricing("stock", e.target.value)}
                   placeholder="100"
+                  readOnly={Boolean(product)}
+                  aria-describedby="product-stock-help"
                 />
+                <span id="product-stock-help" className="text-[10px] text-slate-400 mt-1">
+                  {product ? "Use Adjust inventory to change stock and record the change in the backend ledger." : "Opening inventory available for ordering."}
+                </span>
               </div>
+
+              {/* SKU Generator */}
               <div className="field">
-                <label htmlFor="product-sku">Product SKU *</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label htmlFor="product-sku" className="flex items-center gap-1.5 font-semibold text-slate-700">
+                    <span>Product SKU</span>
+                    <span className="field-badge-required">Required *</span>
+                  </label>
+                </div>
                 <div className="relative flex items-center">
                   <input
                     id="product-sku"
                     value={form.sku}
                     onChange={(e) => updatePrimaryPricing("sku", e.target.value.toUpperCase())}
                     placeholder="DRH-SERUM-01"
+                    className="pr-16"
                     required
                   />
                   <button
                     type="button"
-                    className="absolute right-2 text-xs text-slate-500 hover:text-slate-800 p-1 flex items-center gap-1 transition-colors"
+                    className="absolute right-1.5 button button-secondary button-small text-[10px] py-1 px-2 h-7 inline-flex items-center gap-1"
                     onClick={generateSkuWithAnimation}
-                    title="Generate unique SKU"
+                    title="Generate unique random SKU"
                   >
-                    <RefreshCw size={12} className={isGeneratingSku ? "animate-spin text-teal-600" : ""} />
+                    <RefreshCw size={11} className={isGeneratingSku ? "animate-spin text-teal-600" : ""} />
                     <span>Auto</span>
                   </button>
+                </div>
+                <span className="text-[10px] text-slate-400 mt-1">Unique stock keeping identifier.</span>
+              </div>
+            </div>
+
+            {/* Parcel & Shipping Dimensions Section */}
+            <div className="mt-4 pt-3 border-t border-slate-100">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800 m-0 flex items-center gap-1.5">
+                    <Boxes size={14} className="text-teal-600" />
+                    <span>Packed parcel measurements for courier shipping</span>
+                    <span className="field-badge-required">Required for quotes</span>
+                  </h4>
+                  <p className="text-[11px] text-slate-500 m-0 mt-0.5">
+                    Click a 1-click preset or customize weight and box dimensions for Shiprocket courier rates:
+                  </p>
+                </div>
+              </div>
+
+              {/* 1-Click Shipping Presets */}
+              <div className="shipping-preset-grid">
+                {SHIPPING_PRESETS.map((preset) => {
+                  const isMatch = activeShippingPreset === preset.name || (
+                    leadPlan.shippingProfile?.weightKg === preset.profile.weightKg &&
+                    leadPlan.shippingProfile?.lengthCm === preset.profile.lengthCm &&
+                    leadPlan.shippingProfile?.breadthCm === preset.profile.breadthCm &&
+                    leadPlan.shippingProfile?.heightCm === preset.profile.heightCm
+                  );
+                  return (
+                    <button
+                      key={preset.name}
+                      type="button"
+                      className={`shipping-preset-btn ${isMatch ? "active" : ""}`}
+                      onClick={() => applyShippingPreset(preset)}
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <strong>{preset.name}</strong>
+                        {isMatch && <Check size={12} className="text-teal-600" />}
+                      </div>
+                      <small>{preset.desc}</small>
+                      <span className="text-[10px] text-teal-700 font-semibold mt-1">
+                        {preset.profile.weightKg} kg · {preset.profile.lengthCm}×{preset.profile.breadthCm}×{preset.profile.heightCm} cm
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Exact Parcel Dimensions Inputs */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-slate-50/80 p-3 rounded-xl border border-slate-200/80">
+                <div className="field">
+                  <label className="text-[10px] font-semibold text-slate-600">Weight (kg) *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={leadPlan.shippingProfile?.weightKg ?? ""}
+                    onChange={(e) => {
+                      const val = Number(e.target.value) || 0;
+                      setForm((prev) => ({
+                        ...prev,
+                        supplyPlans: prev.supplyPlans.map((plan, idx) =>
+                          idx === 0
+                            ? { ...plan, shippingProfile: { ...plan.shippingProfile, weightKg: val } }
+                            : plan
+                        ),
+                      }));
+                    }}
+                    required
+                  />
+                </div>
+                <div className="field">
+                  <label className="text-[10px] font-semibold text-slate-600">Length (cm) *</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="1"
+                    value={leadPlan.shippingProfile?.lengthCm ?? ""}
+                    onChange={(e) => {
+                      const val = Number(e.target.value) || 0;
+                      setForm((prev) => ({
+                        ...prev,
+                        supplyPlans: prev.supplyPlans.map((plan, idx) =>
+                          idx === 0
+                            ? { ...plan, shippingProfile: { ...plan.shippingProfile, lengthCm: val } }
+                            : plan
+                        ),
+                      }));
+                    }}
+                    required
+                  />
+                </div>
+                <div className="field">
+                  <label className="text-[10px] font-semibold text-slate-600">Breadth (cm) *</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="1"
+                    value={leadPlan.shippingProfile?.breadthCm ?? ""}
+                    onChange={(e) => {
+                      const val = Number(e.target.value) || 0;
+                      setForm((prev) => ({
+                        ...prev,
+                        supplyPlans: prev.supplyPlans.map((plan, idx) =>
+                          idx === 0
+                            ? { ...plan, shippingProfile: { ...plan.shippingProfile, breadthCm: val } }
+                            : plan
+                        ),
+                      }));
+                    }}
+                    required
+                  />
+                </div>
+                <div className="field">
+                  <label className="text-[10px] font-semibold text-slate-600">Height (cm) *</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="1"
+                    value={leadPlan.shippingProfile?.heightCm ?? ""}
+                    onChange={(e) => {
+                      const val = Number(e.target.value) || 0;
+                      setForm((prev) => ({
+                        ...prev,
+                        supplyPlans: prev.supplyPlans.map((plan, idx) =>
+                          idx === 0
+                            ? { ...plan, shippingProfile: { ...plan.shippingProfile, heightCm: val } }
+                            : plan
+                        ),
+                      }));
+                    }}
+                    required
+                  />
                 </div>
               </div>
             </div>
 
-            {/* Optional multi-month supply plans toggle */}
-            <div className="mt-4 border-t border-slate-100 pt-3">
+            {/* Optional Multi-Month Supply Plans Toggle */}
+            <div className="mt-4 pt-3 border-t border-slate-100">
               <button
                 type="button"
                 className="inline-flex items-center gap-1.5 text-xs font-semibold text-teal-700 hover:text-teal-800 transition-colors"
                 onClick={() => setShowAdvancedPlans(!showAdvancedPlans)}
               >
                 <PackagePlus size={14} />
-                {showAdvancedPlans ? "Hide additional supply plans" : "Add another supply plan"}
+                <span>{showAdvancedPlans ? "Hide additional supply plans" : "Add multi-month supply bundle plans (e.g. 3-Month Kit)"}</span>
               </button>
 
               {showAdvancedPlans && (
                 <div className="mt-3 space-y-3 animate-in fade-in duration-150">
                   <div className="flex items-center justify-between">
-                    <p className="text-xs text-slate-500">
-                      Provide bundle options (e.g. 3-month supply with a discount badge).
+                    <p className="text-xs text-slate-500 m-0">
+                      Offer patients duration discounts (e.g. 3-month course pack with a &quot;Recommended&quot; badge).
                     </p>
                     <button
                       type="button"
@@ -1559,12 +2338,16 @@ function ProductEditor({
                       onClick={() =>
                         setField("supplyPlans", [
                           ...form.supplyPlans,
-                          newPlan(),
+                          newPlan({
+                            title: `${form.supplyPlans.length + 1} Month Supply`,
+                            price: Math.round(leadPrice * 0.9 * (form.supplyPlans.length + 1)),
+                            mrp: Math.round((leadMrp || leadPrice) * (form.supplyPlans.length + 1)),
+                          }),
                         ])
                       }
                     >
                       <Plus size={13} />
-                      Add supply plan
+                      <span>Add bundle plan</span>
                     </button>
                   </div>
 
@@ -1572,7 +2355,7 @@ function ProductEditor({
                     {form.supplyPlans.map((plan, index) => (
                       <article className="supply-plan-card" key={plan.id}>
                         <div className="supply-plan-heading">
-                          <span className="plan-index">Plan {String(index + 1).padStart(2, "0")}</span>
+                          <span className="plan-index">Plan {String(index + 1).padStart(2, "0")} · {index === 0 ? "Default Plan" : "Bundle Option"}</span>
                           {form.supplyPlans.length > 1 && (
                             <button
                               type="button"
@@ -1591,19 +2374,20 @@ function ProductEditor({
                         </div>
                         <div className="product-form-grid">
                           <div className="field">
-                            <label>Plan name *</label>
+                            <label>Plan title *</label>
                             <input
                               value={plan.title}
                               onChange={(e) => updatePlan(index, "title", e.target.value)}
-                              placeholder="Enter plan name"
+                              placeholder="3 Month Supply"
+                              required
                             />
                           </div>
                           <div className="field">
-                            <label>Shop subtitle</label>
+                            <label>Subtitle or highlight</label>
                             <input
                               value={plan.subtitle}
                               onChange={(e) => updatePlan(index, "subtitle", e.target.value)}
-                              placeholder="Full Course + Scalp Roller"
+                              placeholder="Free Scalp Roller included"
                             />
                           </div>
                           <div className="field">
@@ -1612,14 +2396,15 @@ function ProductEditor({
                               value={plan.sku}
                               onChange={(e) => updatePlan(index, "sku", e.target.value.toUpperCase())}
                               placeholder="DRH-SER-3M"
+                              required
                             />
                           </div>
                           <div className="field">
-                            <label>Badge</label>
+                            <label>Badge pill</label>
                             <input
                               value={plan.badge}
                               onChange={(e) => updatePlan(index, "badge", e.target.value)}
-                              placeholder="Most popular"
+                              placeholder="Most Popular"
                             />
                           </div>
                           <div className="field">
@@ -1629,6 +2414,7 @@ function ProductEditor({
                               min="1"
                               value={plan.price || ""}
                               onChange={(e) => updatePlan(index, "price", e.target.value)}
+                              required
                             />
                           </div>
                           <div className="field">
@@ -1640,34 +2426,32 @@ function ProductEditor({
                               onChange={(e) => updatePlan(index, "mrp", e.target.value)}
                             />
                           </div>
-                          <div className="field field-span">
-                            <label>Parcel for this supply plan</label>
-                            <p className="text-[11px] text-slate-500">Enter the packed parcel measurements. The checkout courier quote uses these values for this plan.</p>
-                          </div>
-                          {([
-                            ["weightKg", "Weight (kg)"],
-                            ["lengthCm", "Length (cm)"],
-                            ["breadthCm", "Breadth (cm)"],
-                            ["heightCm", "Height (cm)"],
-                          ] as const).map(([field, label]) => (
-                            <div className="field" key={field}>
-                              <label>{label} *</label>
-                              <input
-                                type="number"
-                                min="0.01"
-                                step="0.01"
-                                value={plan.shippingProfile?.[field] || ""}
-                                onChange={(event) => {
-                                  const value = Number(event.target.value) || 0;
-                                  setField("supplyPlans", form.supplyPlans.map((item, planIndex) => planIndex === index
-                                    ? { ...item, shippingProfile: { weightKg: 0, lengthCm: 0, breadthCm: 0, heightCm: 0, ...item.shippingProfile, [field]: value } }
-                                    : item));
-                                }}
-                                required
-                              />
-                            </div>
-                          ))}
                         </div>
+                        {index > 0 && (
+                          <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                            <p className="mb-2 text-[10px] font-semibold text-slate-600">Confirmed parcel dimensions for this bundle</p>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                              {([
+                                ["weightKg", "Weight (kg)"],
+                                ["lengthCm", "Length (cm)"],
+                                ["breadthCm", "Breadth (cm)"],
+                                ["heightCm", "Height (cm)"],
+                              ] as const).map(([field, label]) => (
+                                <label key={field} className="field text-[10px]">
+                                  {label} *
+                                  <input
+                                    type="number"
+                                    min="0.01"
+                                    step="0.01"
+                                    value={plan.shippingProfile?.[field] ?? ""}
+                                    onChange={(event) => updatePlanShippingProfile(index, field, event.target.value)}
+                                    required
+                                  />
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </article>
                     ))}
                   </div>
@@ -1675,41 +2459,67 @@ function ProductEditor({
               )}
             </div>
 
-            {activeTab === "pricing" && (
-              <div className="flex justify-between items-center pt-2">
+            {/* Step 2 Footer */}
+            <div className="product-step-footer">
+              <button
+                type="button"
+                className="button button-secondary button-small inline-flex items-center gap-1.5"
+                onClick={() => setActiveTab("general")}
+              >
+                <ChevronLeft size={13} />
+                <span>Back to Listing</span>
+              </button>
+              <div className="flex items-center gap-1.5 text-xs text-slate-500 font-medium">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span className="w-2 h-2 rounded-full bg-teal-600" />
+                <span className="w-2 h-2 rounded-full bg-slate-200" />
+                <span className="w-2 h-2 rounded-full bg-slate-200" />
+                <span className="ml-1 text-[11px]">Step 2 of 4</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {product && isStep1Valid && isStep2Valid && (
+                  <button
+                    type="button"
+                    className="button button-secondary button-small text-teal-700 hover:text-teal-800 border-teal-200 inline-flex items-center gap-1"
+                    onClick={() => void handleSubmit()}
+                    disabled={isUploading || isSaving}
+                    title="Quick save changes"
+                  >
+                    {isSaving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                    <span>Quick save</span>
+                  </button>
+                )}
                 <button
                   type="button"
-                  className="button button-secondary button-small"
-                  onClick={() => setActiveTab("general")}
+                  className="button button-primary button-small inline-flex items-center gap-1.5"
+                  onClick={handleNextTab}
                 >
-                  <span>← Back to Details</span>
-                </button>
-                <button
-                  type="button"
-                  className="button button-secondary button-small"
-                  onClick={() => setActiveTab("media")}
-                >
-                  <span>Continue to Media Gallery</span>
+                  <span>Continue to Media</span>
                   <ArrowRight size={13} />
                 </button>
               </div>
-            )}
+            </div>
           </div>
         )}
 
-        {/* SECTION 3: MEDIA (CLOUDINARY) */}
+        {/* STEP 3: MEDIA (CLOUDFLARE R2) */}
         {activeTab === "media" && (
-          <div className="product-editor-section animate-in fade-in duration-200">
+          <div className="product-editor-section wizard-step-panel">
             <div className="product-editor-section-head">
               <div>
-                <h3>Product photos & media (Cloudflare R2)</h3>
-                <p>Upload JPEG, PNG, WebP, GIF, or AVIF images to R2. Star marks the primary cover.</p>
+                <h3 className="flex items-center gap-2">
+                  <span>Product photos & mobile gallery</span>
+                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-teal-800 bg-teal-50 border border-teal-200 rounded-full px-2 py-0.5">
+                    Cloudflare R2 High-Speed Storage
+                  </span>
+                </h3>
+                <p>Upload high-resolution medicine packaging photos (JPG, PNG, WebP, AVIF up to 25 MB). Star marks the primary cover.</p>
               </div>
               <span className="product-section-number">03</span>
             </div>
 
             {isUploading && (
-              <div className="flex items-center gap-2.5 rounded-xl border border-teal-200 bg-teal-50/90 px-3.5 py-2.5 text-xs text-teal-800 shadow-sm animate-pulse">
+              <div className="flex items-center gap-2.5 rounded-xl border border-teal-200 bg-teal-50/90 px-3.5 py-2.5 text-xs text-teal-800 shadow-sm animate-pulse mb-3">
                 <Loader2 size={16} className="animate-spin text-teal-600 shrink-0" />
                 <span className="font-semibold">
                   Uploading {uploadingCount} image{uploadingCount > 1 ? "s" : ""} to Cloudflare R2 storage...
@@ -1717,8 +2527,8 @@ function ProductEditor({
               </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-2">
-              {/* Interactive Drag & Drop Area */}
+            {/* Interactive Drag & Drop Area */}
+            <div className="mb-3">
               <div
                 className={`media-dropzone ${isDraggingOver ? "is-dragging" : ""}`}
                 onDragOver={handleDragOver}
@@ -1747,8 +2557,8 @@ function ProductEditor({
                   <UploadCloud size={20} />
                 </span>
                 <div>
-                  <strong>{isDraggingOver ? "Drop medicine photos here" : "Upload from device"}</strong>
-                  <small>Drag & drop or browse photos (JPG, PNG, WebP, AVIF, HEIC, HEIF, GIF · up to 25 MiB each). Original is retained; optimized variants are created when supported.</small>
+                  <strong>{isDraggingOver ? "Drop product images here" : "Upload product photos from device"}</strong>
+                  <small>Drag & drop or browse photos (JPG, PNG, WebP, AVIF · up to 25 MB each). Automatically converted to fast WebP variants for the mobile app.</small>
                 </div>
                 <button
                   type="button"
@@ -1758,7 +2568,7 @@ function ProductEditor({
                     fileInputRef.current?.click();
                   }}
                 >
-                  Browse files
+                  Browse photos
                 </button>
               </div>
             </div>
@@ -1838,7 +2648,7 @@ function ProductEditor({
                           : status === "error"
                           ? meta?.error || "Error uploading"
                           : displayUrl
-                          ? "Ready"
+                          ? "Ready for app"
                           : "Local"}
                       </small>
                     </span>
@@ -1848,14 +2658,14 @@ function ProductEditor({
                       aria-label={`Alt text for ${media.name}`}
                       value={media.altText ?? ""}
                       onChange={(event) => updateMedia(index, { altText: event.target.value })}
-                      placeholder="Alt text or caption"
+                      placeholder="Alt caption (e.g. Front bottle view)"
                     />
 
                     {/* Primary Star Action */}
                     <button
                       type="button"
                       className={`row-action ${media.isPrimary ? "primary-media-selected" : ""}`}
-                      aria-label={media.isPrimary ? "Primary cover image" : `Set ${media.name} as primary cover`}
+                      aria-label={media.isPrimary ? "Primary cover image" : `Set as primary cover`}
                       onClick={() =>
                         setField(
                           "media",
@@ -1866,7 +2676,7 @@ function ProductEditor({
                         )
                       }
                       disabled={media.kind !== "image"}
-                      title={media.isPrimary ? "Primary cover image" : "Set as primary cover"}
+                      title={media.isPrimary ? "Primary cover image (Shown first in app)" : "Set as primary cover"}
                     >
                       <Star size={14} className={media.isPrimary ? "fill-amber-500 text-amber-500" : ""} />
                     </button>
@@ -1934,108 +2744,440 @@ function ProductEditor({
 
               {form.media.length === 0 && (
                 <div className="product-media-empty">
-                  <ImagePlus size={24} className="mx-auto mb-2 text-slate-300" />
-                  <p className="text-xs font-medium text-slate-600 m-0">No medicine images added yet.</p>
-                  <p className="text-[11px] text-slate-400 mt-1 mb-0">Drag and drop photos above or browse from your device.</p>
+                  <ImagePlus size={26} className="mx-auto mb-2 text-slate-300" />
+                  <p className="text-xs font-semibold text-slate-700 m-0">No medicine photos uploaded yet.</p>
+                  <p className="text-[11px] text-slate-400 mt-1 mb-0">Drag and drop photos above or browse from your computer.</p>
                 </div>
               )}
             </div>
 
-            {activeTab === "media" && (
-              <div className="flex justify-between items-center pt-2">
+            {/* Step 3 Footer */}
+            <div className="product-step-footer">
+              <button
+                type="button"
+                className="button button-secondary button-small inline-flex items-center gap-1.5"
+                onClick={() => setActiveTab("pricing")}
+              >
+                <ChevronLeft size={13} />
+                <span>Back to Pricing</span>
+              </button>
+              <div className="flex items-center gap-1.5 text-xs text-slate-500 font-medium">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span className="w-2 h-2 rounded-full bg-teal-600" />
+                <span className="w-2 h-2 rounded-full bg-slate-200" />
+                <span className="ml-1 text-[11px]">Step 3 of 4</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {isStep1Valid && isStep2Valid && (
+                  <button
+                    type="button"
+                    className="button button-secondary button-small text-teal-700 hover:text-teal-800 border-teal-200 inline-flex items-center gap-1"
+                    onClick={() => void handleSubmit()}
+                    disabled={isUploading || isSaving}
+                    title="Publish directly"
+                  >
+                    {isSaving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                    <span>{product ? "Save now" : "Publish now"}</span>
+                  </button>
+                )}
                 <button
                   type="button"
-                  className="button button-secondary button-small"
-                  onClick={() => setActiveTab("pricing")}
+                  className="button button-primary button-small inline-flex items-center gap-1.5"
+                  onClick={handleNextTab}
                 >
-                  <span>← Back to Pricing</span>
-                </button>
-                <button
-                  type="button"
-                  className="button button-secondary button-small"
-                  onClick={() => setActiveTab("clinical")}
-                >
-                  <span>Continue to Clinical & Usage</span>
+                  <span>Continue to Clinical</span>
                   <ArrowRight size={13} />
                 </button>
               </div>
-            )}
+            </div>
           </div>
         )}
 
-        {/* SECTION 4: CLINICAL DETAILS */}
+        {/* STEP 4: CLINICAL DETAILS & USAGE (VISUAL CARD BUILDERS) */}
         {activeTab === "clinical" && (
-          <div className="product-editor-section animate-in fade-in duration-200">
+          <div className="product-editor-section wizard-step-panel">
             <div className="product-editor-section-head">
               <div>
-                <h3>Product clinical details & usage</h3>
-                <p>Benefits, key ingredients, usage instructions, and clinical claims shown to patients in the app.</p>
+                <h3 className="flex items-center gap-2">
+                  <span>Product clinical details & usage guidelines</span>
+                  <span className="field-badge-optional">Optional enhancements</span>
+                </h3>
+                <p>Add scientific benefits, key ingredients, usage instructions, and clinical claims displayed to patients in the app.</p>
               </div>
-              <span className="product-section-number">04</span>
-            </div>
-            <div className="product-content-grid">
-              <div className="field">
-                <label htmlFor="product-benefits">Benefits · title | description</label>
-                <textarea
-                  id="product-benefits"
-                  className="product-description-input"
-                  value={form.benefitsText}
-                  onChange={(event) => setField("benefitsText", event.target.value)}
-                  placeholder={"Supports hair density | Formulated to nourish hair follicles and reduce shedding"}
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="product-ingredients">Ingredients · name | concentration | purpose</label>
-                <textarea
-                  id="product-ingredients"
-                  className="product-description-input"
-                  value={form.ingredientsText}
-                  onChange={(event) => setField("ingredientsText", event.target.value)}
-                  placeholder={"Procapil | 3% | Follicle activation\nBiotin | 1% | Keratin support"}
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="product-usage">How to use · title | instructions</label>
-                <textarea
-                  id="product-usage"
-                  className="product-description-input"
-                  value={form.usageStepsText}
-                  onChange={(event) => setField("usageStepsText", event.target.value)}
-                  placeholder={"Step 1 | Apply 1ml to dry scalp using the dropper\nStep 2 | Gently massage for 2 minutes"}
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="product-claims">Clinical claims · % | claim | source</label>
-                <textarea
-                  id="product-claims"
-                  className="product-description-input"
-                  value={form.clinicalClaimsText}
-                  onChange={(event) => setField("clinicalClaimsText", event.target.value)}
-                  placeholder={"89% | Reported reduced hair fall after 60 days | Clinical trial reference"}
-                />
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="button button-secondary button-small text-[10px]"
+                  onClick={() => setRawTextMode(!rawTextMode)}
+                >
+                  <Sliders size={12} />
+                  <span>{rawTextMode ? "Switch to Visual Card Builder" : "Switch to Raw Text Mode"}</span>
+                </button>
+                <span className="product-section-number">04</span>
               </div>
             </div>
 
-            {activeTab === "clinical" && (
-              <div className="flex justify-between items-center pt-2">
-                <button
-                  type="button"
-                  className="button button-secondary button-small"
-                  onClick={() => setActiveTab("media")}
-                >
-                  <span>← Back to Media</span>
-                </button>
-                <button
-                  type="button"
-                  className="button button-primary button-small"
-                  onClick={() => void handleSubmit()}
-                  disabled={isUploading || isSaving}
-                >
-                  <Check size={13} />
-                  <span>{product ? "Save product changes" : "Add product to catalog"}</span>
-                </button>
+            {!rawTextMode ? (
+              <div className="space-y-5">
+                {/* 1. Benefits Builder */}
+                <div className="border border-slate-200/90 rounded-xl p-3.5 bg-slate-50/50">
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-800 m-0 flex items-center gap-1.5">
+                        <Sparkles size={14} className="text-teal-600" />
+                        <span>Key Clinical Benefits ({form.benefits?.length || 0})</span>
+                      </h4>
+                      <p className="text-[11px] text-slate-500 m-0">Highlights shown in bullet points on the patient product screen.</p>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        className="button button-secondary button-small text-[10px] py-1 px-2"
+                        onClick={() => addBenefitItem()}
+                      >
+                        <Plus size={11} />
+                        <span>Add Benefit</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {(form.benefits || []).map((benefit, index) => (
+                      <div key={index} className="clinical-builder-card">
+                        <div className="flex items-center gap-2">
+                          <input
+                            value={benefit.title}
+                            onChange={(e) => updateBenefitItem(index, "title", e.target.value)}
+                            placeholder="Benefit title from approved product information"
+                            className="text-xs font-semibold flex-1"
+                          />
+                          <button
+                            type="button"
+                            className="row-action danger-action"
+                            onClick={() => removeBenefitItem(index)}
+                            aria-label={`Remove benefit ${index + 1}`}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                        <input
+                          value={benefit.description}
+                          onChange={(e) => updateBenefitItem(index, "description", e.target.value)}
+                          placeholder="Benefit wording supported by approved product information"
+                          className="text-xs text-slate-600"
+                        />
+                      </div>
+                    ))}
+
+                    {(!form.benefits || form.benefits.length === 0) && (
+                      <p className="text-xs text-slate-400 italic text-center py-2 m-0">
+                        No benefits added yet. Add only product benefits supported by approved product information.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* 2. Key Ingredients Builder */}
+                <div className="border border-slate-200/90 rounded-xl p-3.5 bg-slate-50/50">
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-800 m-0 flex items-center gap-1.5">
+                        <BadgeCheck size={14} className="text-teal-600" />
+                        <span>Active Ingredients ({form.ingredients?.length || 0})</span>
+                      </h4>
+                      <p className="text-[11px] text-slate-500 m-0">Active compounds, concentrations, and mechanisms of action.</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="button button-secondary button-small text-[10px] py-1 px-2"
+                      onClick={() => addIngredientItem()}
+                    >
+                      <Plus size={11} />
+                      <span>Add Ingredient</span>
+                    </button>
+                  </div>
+
+                  {/* 1-Click Common Ingredient Chips */}
+                  <div className="flex flex-wrap gap-1.5 mb-2.5">
+                    <span className="text-[10px] text-slate-400 font-medium self-center mr-1">Quick add:</span>
+                    {INGREDIENT_SUGGESTIONS.map((ing) => (
+                      <button
+                        key={ing.name}
+                        type="button"
+                        className="quick-select-chip text-[10px] py-0.5 px-2"
+                        onClick={() => {
+                          if (!(form.ingredients || []).some((item) => item.name.toLowerCase() === ing.name.toLowerCase())) {
+                            addIngredientItem(ing);
+                          }
+                        }}
+                      >
+                        <Plus size={10} className="text-teal-600" />
+                        <span>{ing.name}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="space-y-2">
+                    {(form.ingredients || []).map((ing, index) => (
+                      <div key={index} className="clinical-builder-card">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-center">
+                          <input
+                            value={ing.name}
+                            onChange={(e) => updateIngredientItem(index, "name", e.target.value)}
+                            placeholder="Ingredient name (e.g. Redensyl)"
+                            className="text-xs font-semibold"
+                          />
+                          <input
+                            value={ing.concentration}
+                            onChange={(e) => updateIngredientItem(index, "concentration", e.target.value)}
+                            placeholder="Concentration (e.g. 3%)"
+                            className="text-xs"
+                          />
+                          <div className="flex items-center gap-2">
+                            <input
+                              value={ing.purpose}
+                              onChange={(e) => updateIngredientItem(index, "purpose", e.target.value)}
+                              placeholder="Purpose from approved product information"
+                              className="text-xs flex-1"
+                            />
+                            <button
+                              type="button"
+                              className="row-action danger-action shrink-0"
+                              onClick={() => removeIngredientItem(index)}
+                              aria-label={`Remove ingredient ${index + 1}`}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    {(!form.ingredients || form.ingredients.length === 0) && (
+                      <p className="text-xs text-slate-400 italic text-center py-2 m-0">
+                        No active ingredients added yet. Click &quot;Add Ingredient&quot; or choose from quick chips above.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* 3. Usage Steps Builder */}
+                <div className="border border-slate-200/90 rounded-xl p-3.5 bg-slate-50/50">
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-800 m-0 flex items-center gap-1.5">
+                        <Info size={14} className="text-teal-600" />
+                        <span>How to Use / Patient Instructions ({form.usageSteps?.length || 0})</span>
+                      </h4>
+                      <p className="text-[11px] text-slate-500 m-0">Use instructions exactly as stated on the approved product label.</p>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        className="button button-secondary button-small text-[10px] py-1 px-2"
+                        onClick={() => addUsageStepItem()}
+                      >
+                        <Plus size={11} />
+                        <span>Add Step</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {(form.usageSteps || []).map((step, index) => (
+                      <div key={index} className="clinical-builder-card">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-bold text-teal-800 bg-teal-100 rounded px-1.5 py-0.5 shrink-0">
+                            Step {index + 1}
+                          </span>
+                          <input
+                            value={step.title}
+                            onChange={(e) => updateUsageStepItem(index, "title", e.target.value)}
+                            placeholder="Step title from the approved product label"
+                            className="text-xs font-semibold flex-1"
+                          />
+                          <button
+                            type="button"
+                            className="row-action danger-action"
+                            onClick={() => removeUsageStepItem(index)}
+                            aria-label={`Remove step ${index + 1}`}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                        <input
+                          value={step.description}
+                          onChange={(e) => updateUsageStepItem(index, "description", e.target.value)}
+                          placeholder="Instruction exactly as stated on the approved product label"
+                          className="text-xs text-slate-600"
+                        />
+                      </div>
+                    ))}
+
+                    {(!form.usageSteps || form.usageSteps.length === 0) && (
+                      <p className="text-xs text-slate-400 italic text-center py-2 m-0">
+                        No usage steps configured yet.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* 4. Clinical Claims & Evidence */}
+                <div className="border border-slate-200/90 rounded-xl p-3.5 bg-slate-50/50">
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-800 m-0 flex items-center gap-1.5">
+                        <TrendingUp size={14} className="text-teal-600" />
+                        <span>Clinical Trial Claims & Metrics ({form.clinicalClaims?.length || 0})</span>
+                      </h4>
+                      <p className="text-[11px] text-slate-500 m-0">Enter claims only when supported by a verified source; the source is required for review.</p>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        className="button button-secondary button-small text-[10px] py-1 px-2"
+                        onClick={() => addClinicalClaimItem()}
+                      >
+                        <Plus size={11} />
+                        <span>Add Claim</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {(form.clinicalClaims || []).map((claim, index) => (
+                      <div key={index} className="clinical-builder-card">
+                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-center">
+                          <input
+                            value={claim.percentage}
+                            onChange={(e) => updateClinicalClaimItem(index, "percentage", e.target.value)}
+                            placeholder="Verified metric, if applicable"
+                            className="text-xs font-bold text-teal-700"
+                          />
+                          <input
+                            value={claim.claim}
+                            onChange={(e) => updateClinicalClaimItem(index, "claim", e.target.value)}
+                            placeholder="Claim exactly as stated by the source"
+                            className="text-xs sm:col-span-2 font-medium"
+                          />
+                          <div className="flex items-center gap-2">
+                            <input
+                              value={claim.source}
+                              onChange={(e) => updateClinicalClaimItem(index, "source", e.target.value)}
+                              placeholder="Publication, study, or approved evidence reference"
+                              className="text-xs flex-1 text-slate-500"
+                            />
+                            <button
+                              type="button"
+                              className="row-action danger-action shrink-0"
+                              onClick={() => removeClinicalClaimItem(index)}
+                              aria-label={`Remove claim ${index + 1}`}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    {(!form.clinicalClaims || form.clinicalClaims.length === 0) && (
+                      <p className="text-xs text-slate-400 italic text-center py-2 m-0">
+                        No clinical metrics added yet.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* Raw Pipe-Delimited Mode for Bulk Editors */
+              <div className="product-content-grid">
+                <div className="field">
+                  <label htmlFor="product-benefits">Benefits · title | description</label>
+                  <textarea
+                    id="product-benefits"
+                    className="product-description-input"
+                    value={form.benefitsText}
+                    onChange={(event) => {
+                      setField("benefitsText", event.target.value);
+                      const parsed = parseLines(event.target.value, 2).map(([title, description]) => ({ title, description }));
+                      setField("benefits", parsed);
+                    }}
+                    placeholder={"[benefit from approved product information] | [description supported by approved product information]"}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="product-ingredients">Ingredients · name | concentration | purpose</label>
+                  <textarea
+                    id="product-ingredients"
+                    className="product-description-input"
+                    value={form.ingredientsText}
+                    onChange={(event) => {
+                      setField("ingredientsText", event.target.value);
+                      const parsed = parseLines(event.target.value, 3).map(([name, concentration, purpose]) => ({ name, concentration, purpose }));
+                      setField("ingredients", parsed);
+                    }}
+                    placeholder={"[ingredient name] | [label concentration] | [approved purpose]"}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="product-usage">How to use · title | instructions</label>
+                  <textarea
+                    id="product-usage"
+                    className="product-description-input"
+                    value={form.usageStepsText}
+                    onChange={(event) => {
+                      setField("usageStepsText", event.target.value);
+                      const parsed = parseLines(event.target.value, 2).map(([title, description]) => ({ title, description }));
+                      setField("usageSteps", parsed);
+                    }}
+                    placeholder={"[step title from approved label] | [instruction exactly as stated on approved label]"}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="product-claims">Clinical claims · % | claim | source</label>
+                  <textarea
+                    id="product-claims"
+                    className="product-description-input"
+                    value={form.clinicalClaimsText}
+                    onChange={(event) => {
+                      setField("clinicalClaimsText", event.target.value);
+                      const parsed = parseLines(event.target.value, 3).map(([percentage, claim, source]) => ({ percentage, claim, source }));
+                      setField("clinicalClaims", parsed);
+                    }}
+                    placeholder={"[verified metric] | [claim exactly as supported] | [source reference]"}
+                  />
+                </div>
               </div>
             )}
+
+            {/* Step 4 Footer */}
+            <div className="product-step-footer">
+              <button
+                type="button"
+                className="button button-secondary button-small inline-flex items-center gap-1.5"
+                onClick={() => setActiveTab("media")}
+              >
+                <ChevronLeft size={13} />
+                <span>Back to Media</span>
+              </button>
+              <div className="flex items-center gap-1.5 text-xs text-slate-500 font-medium">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span className="w-2 h-2 rounded-full bg-teal-600" />
+                <span className="ml-1 text-[11px]">Step 4 of 4</span>
+              </div>
+              <button
+                type="button"
+                className="button button-primary button-small inline-flex items-center gap-1.5"
+                onClick={() => void handleSubmit()}
+                disabled={isUploading || isSaving}
+              >
+                {isSaving ? <Loader2 size={13} className="animate-spin text-white" /> : <Check size={13} />}
+                <span>{product ? "Save product changes" : "Publish product to catalog"}</span>
+              </button>
+            </div>
           </div>
         )}
       </Modal>
@@ -2089,7 +3231,7 @@ function ProductDetails({
       </div>
       <p className="product-detail-copy">{product.description || "No product description added yet."}</p>
       <section className="product-detail-section">
-        <h3>Supply plans & inventory</h3>
+        <h3>Supply plan pricing</h3>
         {plans.map((plan) => (
           <div className="product-plan-detail" key={plan.id}>
             <span>
@@ -2102,10 +3244,6 @@ function ProductDetails({
               <strong>{formatCurrency(plan.price)}</strong>
               <small>MRP {plan.mrp ? formatCurrency(plan.mrp) : "—"}</small>
             </span>
-            <span>
-              <strong className={plan.stock <= plan.lowStockThreshold ? "stock-low" : ""}>{plan.stock} units</strong>
-              <small>Alert below {plan.lowStockThreshold}</small>
-            </span>
                           <span>
                             <strong>{plan.shippingProfile?.weightKg ? `${plan.shippingProfile.weightKg} kg` : "Parcel setup needed"}</strong>
                             <small>{plan.shippingProfile?.lengthCm && plan.shippingProfile?.breadthCm && plan.shippingProfile?.heightCm
@@ -2114,6 +3252,11 @@ function ProductDetails({
                           </span>
           </div>
         ))}
+      </section>
+      <section className="product-detail-section">
+        <h3>Product inventory</h3>
+        <strong className={productStock(product) <= 10 ? "stock-low" : ""}>{productStock(product)} units</strong>
+        <p className="card-note">Inventory is managed for the catalog product and shared across its supply plans.</p>
       </section>
       {product.benefits?.length ||
       product.ingredients?.length ||
@@ -2221,13 +3364,12 @@ function StockAdjustmentDialog({
 }: {
   product: ProductRecord;
   onClose: () => void;
-  onSave: (planId: string, delta: number, reason: string) => boolean;
+  onSave: (delta: number, reason: string) => Promise<boolean>;
 }) {
-  const plans = getPlans(product);
-  const [planId, setPlanId] = useState(plans[0]?.id ?? "");
   const [quantity, setQuantity] = useState("1");
   const [direction, setDirection] = useState<"add" | "remove">("add");
   const [reason, setReason] = useState("Stock received");
+  const [saving, setSaving] = useState(false);
   const delta = (direction === "add" ? 1 : -1) * Math.abs(Math.floor(Number(quantity)) || 0);
 
   return (
@@ -2235,20 +3377,15 @@ function StockAdjustmentDialog({
       title="Adjust inventory"
       description={`${product.name} · Changes are recorded in stock history and synced to the database.`}
       submitLabel="Save adjustment"
+      submitLoading={saving}
+      submitDisabled={!Number.isSafeInteger(delta) || delta === 0 || saving}
       onClose={onClose}
-      onSubmit={() => onSave(planId, delta, reason)}
+      onSubmit={() => {
+        setSaving(true);
+        void onSave(delta, reason).finally(() => setSaving(false));
+      }}
     >
       <div className="form-grid-two">
-        <div className="field field-span">
-          <label htmlFor="stock-plan">Supply plan</label>
-          <select id="stock-plan" value={planId} onChange={(event) => setPlanId(event.target.value)}>
-            {plans.map((plan) => (
-              <option key={plan.id} value={plan.id}>
-                {plan.title} · {plan.sku} · {plan.stock} on hand
-              </option>
-            ))}
-          </select>
-        </div>
         <div className="field">
           <label htmlFor="stock-direction">Adjustment</label>
           <select
@@ -2285,7 +3422,7 @@ function StockAdjustmentDialog({
       <div className="stock-adjustment-preview">
         <Boxes size={15} />
         <span>
-          Current stock: <strong>{plans.find((plan) => plan.id === planId)?.stock ?? 0}</strong>
+          Current stock: <strong>{productStock(product)}</strong>
         </span>
         <span>
           Change:{" "}

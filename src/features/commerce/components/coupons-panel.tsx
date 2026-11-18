@@ -103,7 +103,7 @@ export function CouponsPanel({ coupons, products, onCouponsChange, onToast }: { 
     <div className="kpi-grid commerce-metrics grid grid-cols-2 gap-3 lg:grid-cols-3">
       <MiniMetric icon={<TicketPercent size={15} />} label="Active offers" value={String(activeCoupons)} note="Available at checkout" />
       <MiniMetric icon={<BadgePercent size={15} />} label="Total redemptions" value={redemptions.toLocaleString("en-IN")} note="Across all listed codes" />
-      <MiniMetric icon={<Check size={15} />} label="Discounted sales" value={formatCurrency(184620)} note="Sample value this month" />
+      <MiniMetric icon={<Check size={15} />} label="Discounted sales" value="—" note="Sales impact is not available from the coupon API" />
     </div>
     <div className="notice coupon-guidance"><WandSparkles size={14} /><span>Choose a product, percentage or fixed amount, minimum spend, usage limit, and end date. Active coupons apply in real time during checkout.</span></div>
     <section className="card commerce-list-card"><div className="section-row"><div><h2 className="card-title">Offer codes</h2><p className="card-note">Offers customers can enter during checkout</p></div><span className="small-caption">{coupons.length} total</span></div>

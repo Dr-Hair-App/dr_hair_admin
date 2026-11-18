@@ -14,6 +14,11 @@ export type ViewerImage = {
 
 export function FullSizeImageViewer({ image, onClose }: { image: ViewerImage | null; onClose: () => void }) {
   const [isClosing, setIsClosing] = useState(false);
+  const [prevImage, setPrevImage] = useState(image);
+  if (image !== prevImage) {
+    setPrevImage(image);
+    setIsClosing(false);
+  }
   const closingRef = useRef(false);
   const onCloseRef = useRef(onClose);
 
@@ -37,7 +42,6 @@ export function FullSizeImageViewer({ image, onClose }: { image: ViewerImage | n
 
   useEffect(() => {
     if (!image) return;
-    setIsClosing(false);
     closingRef.current = false;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";

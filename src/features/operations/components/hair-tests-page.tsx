@@ -99,18 +99,30 @@ export function HairTestsPage({
           if (String(t.status || "").toLowerCase() === "archived") return;
           const patient = patientsList.find((p) => String(p.id) === String(t.userId));
           const stage = String(t.hair_loss_stage || t.stage || t.main_concern || "Scalp screening");
-          const photoCount = Array.isArray(t.scalp_photos) ? t.scalp_photos.length : 0;
+          const photos = Array.isArray(t.scalp_photos)
+            ? t.scalp_photos.filter((photo): photo is Record<string, unknown> => Boolean(photo) && typeof photo === "object")
+            : [];
+          const photoCount = photos.length;
+          const photoBytes = photos.reduce((total, photo) => {
+            const bytes = Number(photo.bytes);
+            return total + (Number.isFinite(bytes) && bytes > 0 ? bytes : 0);
+          }, 0);
+          const photoTypes = [...new Set(photos.map((photo) => {
+            const mimeType = typeof photo.mime_type === "string" ? photo.mime_type : "";
+            const format = typeof photo.format === "string" ? photo.format : "";
+            return mimeType || (format ? `image/${format.toLowerCase()}` : "");
+          }).filter(Boolean))];
           const status = String(t.status || "submitted").toLowerCase();
           combined.push({
             id: String(t.reference_no || t.id),
             patientId: String(t.userId),
             patientName: patient?.name || String(t.name || `Patient #${t.userId}`),
             testName: `Hair assessment · ${stage}`,
-            testDate: t.created_at ? new Date(String(t.created_at)).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+            testDate: t.created_at ? new Date(String(t.created_at)).toISOString().slice(0, 10) : "—",
             fileName: photoCount > 0 ? `${photoCount} scalp photos attached` : "Clinical questionnaire",
-            fileType: photoCount > 0 ? "image/jpeg" : "application/json",
-            fileSize: (photoCount || 1) * 2048,
-            status: status === "reviewed" ? "Approved" : status === "under_review" ? "In review" : "Draft",
+            fileType: photoCount > 0 ? (photoTypes.length === 1 ? photoTypes[0] : photoTypes.length > 1 ? "Multiple image formats" : "") : "",
+            fileSize: photoBytes || undefined,
+            status: status === "reviewed" ? "Approved" : status === "under_review" || status === "submitted" ? "In review" : "Draft",
             aiAssessmentStatus: String(t.ai_assessment_status || (t.ai_assessment ? "ready" : "not_available")) as NonNullable<HairTestRecord["aiAssessmentStatus"]>,
             createdAt: t.created_at ? new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" }).format(new Date(String(t.created_at))) : "Recently",
             uploadedBy: "Patient via app",
@@ -128,10 +140,10 @@ export function HairTestsPage({
             patientId: String(r.userId),
             patientName: patient?.name || `Patient #${r.userId}`,
             testName: String(r.title || "Clinical Report"),
-            testDate: r.created_at ? new Date(String(r.created_at)).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+            testDate: r.created_at ? new Date(String(r.created_at)).toISOString().slice(0, 10) : "—",
             fileName: String(r.file_name || "report.pdf"),
-            fileType: String(r.mime_type || "application/pdf"),
-            fileSize: Number(r.bytes) || 1024,
+            fileType: String(r.mime_type || ""),
+            fileSize: Number(r.bytes) > 0 ? Number(r.bytes) : undefined,
             status: r.visibility === "Shared" ? "Shared" : "Private",
             createdAt: r.created_at ? new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" }).format(new Date(String(r.created_at))) : "Recently",
             uploadedBy: String(r.uploaded_by || actor),
@@ -353,7 +365,7 @@ export function HairTestsPage({
           <div>
             <h2 className="card-title">Test review queue</h2>
             <p className="card-note">
-              {records.filter((item) => item.status === "In review").length} waiting for doctor review · {records.filter((item) => item.status === "Approved" || item.status === "Private").length} approved to share · {records.filter((item) => item.status === "Shared").length} shared with patients · {pendingAiCount} AI pending · {failedAiCount} AI failed
+              {records.filter((item) => item.status === "In review").length} waiting for doctor review · {records.filter((item) => item.status === "Approved").length} approved to share · {records.filter((item) => item.status === "Shared").length} shared with patients · {pendingAiCount} AI pending · {failedAiCount} AI failed
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -389,7 +401,7 @@ export function HairTestsPage({
                     <td>
                       <div className="hair-test-file">
                         {record.fileName}
-                        <small>{(record.fileSize / 1024).toFixed(0)} KB · added by {record.uploadedBy}</small>
+                        <small>{record.fileSize ? `${(record.fileSize / 1024).toFixed(0)} KB` : "File size unavailable"} · added by {record.uploadedBy}</small>
                       </div>
                     </td>
                     <td>{record.testDate}</td>

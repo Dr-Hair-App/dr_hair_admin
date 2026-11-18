@@ -1,7 +1,7 @@
 "use client";
 
 import { BadgePercent, Package, ShoppingBag, TrendingUp } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "../../shared/components/ui";
 import { SlidingTabList } from "../../shared/components/sliding-tab-list";
 import type { CouponRecord, ProductRecord, ProductStatus, ProductBenefit, ProductIngredient, ProductUsageStep, ProductClinicalClaim } from "../types";
@@ -29,6 +29,12 @@ export function ProductManagement({ onToast, permissions, panelAccess, globalSea
   const [createProductOpen, setCreateProductOpen] = useState(false);
   const [products, setProducts] = useState<ProductRecord[]>([]);
   const [coupons, setCoupons] = useState<CouponRecord[]>([]);
+  const [productsLoading, setProductsLoading] = useState(true);
+  const [productsError, setProductsError] = useState("");
+  const [couponsError, setCouponsError] = useState("");
+  const [couponsLoading, setCouponsLoading] = useState(true);
+  const [couponLoadAttempt, setCouponLoadAttempt] = useState(0);
+  const productsRequestRef = useRef<AbortController | null>(null);
   const canManageProducts = permissions.includes("products.manage") && panelAccess.catalog !== false;
   const canManageOrders = permissions.includes("orders.manage") && panelAccess.orders !== false;
   const canManagePromotions = permissions.includes("promotions.manage") && panelAccess.catalog !== false;
@@ -40,25 +46,37 @@ export function ProductManagement({ onToast, permissions, panelAccess, globalSea
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/admin/coupons", { cache: "no-store", signal: controller.signal })
+    void Promise.resolve().then(() => {
+      if (controller.signal.aborted) return;
+      setCouponsError("");
+      setCouponsLoading(true);
+      return fetch("/api/admin/coupons", { cache: "no-store", signal: controller.signal })
       .then(async (res) => {
         const body = await res.json().catch(() => ({}));
-        if (!res.ok) return;
+        if (!res.ok) throw new Error(typeof body.message === "string" ? body.message : "Coupon records could not be loaded.");
         const items = body?.data?.coupons || body?.data;
         if (Array.isArray(items)) {
-          setCoupons(items);
-        }
+          if (!controller.signal.aborted) setCoupons(items);
+        } else throw new Error("The coupon service returned an invalid response.");
       })
-      .catch(() => {});
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) setCouponsError(error instanceof Error ? error.message : "Coupon records could not be loaded.");
+      })
+      .finally(() => { if (!controller.signal.aborted) setCouponsLoading(false); });
+    });
     return () => controller.abort();
-  }, [setCoupons]);
+  }, [couponLoadAttempt]);
 
   const refreshProducts = useCallback(() => {
+    productsRequestRef.current?.abort();
     const controller = new AbortController();
-    fetch("/api/admin/products?limit=100&status=all", { cache: "no-store", signal: controller.signal })
+    productsRequestRef.current = controller;
+    setProductsLoading(true);
+    setProductsError("");
+    return fetch("/api/admin/products?limit=100&status=all", { cache: "no-store", signal: controller.signal })
       .then(async (res) => {
         const body = await res.json().catch(() => ({}));
-        if (!res.ok) return;
+        if (!res.ok) throw new Error(typeof body.message === "string" ? body.message : "Products could not be loaded.");
         const items = body?.data?.items || body?.data;
         if (Array.isArray(items)) {
           const normalized: ProductRecord[] = items.map((raw: Record<string, unknown>) => {
@@ -130,15 +148,18 @@ export function ProductManagement({ onToast, permissions, panelAccess, globalSea
           });
 
           // Show only uploaded products from the database
-          setProducts(normalized);
-        }
+          if (!controller.signal.aborted) setProducts(normalized);
+        } else throw new Error("The product service returned an invalid response.");
       })
-      .catch(() => {});
-    return () => controller.abort();
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) setProductsError(error instanceof Error ? error.message : "Products could not be loaded.");
+      })
+      .finally(() => { if (!controller.signal.aborted) setProductsLoading(false); });
   }, [setProducts]);
 
   useEffect(() => {
-    return refreshProducts();
+    void Promise.resolve().then(() => refreshProducts());
+    return () => productsRequestRef.current?.abort();
   }, [refreshProducts]);
 
   const resolvedActiveTab = availableTabs.some((tab) => tab.id === activeTab) ? activeTab : availableTabs[0]?.id ?? "products";
@@ -161,6 +182,10 @@ export function ProductManagement({ onToast, permissions, panelAccess, globalSea
     <SlidingTabList activeKey={resolvedActiveTab} className="commerce-tabs" label="Commerce sections">
       {availableTabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={resolvedActiveTab === id} className={`commerce-tab ${resolvedActiveTab === id ? "selected" : ""}`} onClick={() => selectTab(id)}><Icon size={15} />{label}{id === "products" && <span>{products.length}</span>}</button>)}
     </SlidingTabList>
+    {resolvedActiveTab === "products" && productsError && <div className="notice" role="alert">{productsError} <button type="button" className="text-action" onClick={() => void refreshProducts()}>Retry</button></div>}
+    {resolvedActiveTab === "products" && productsLoading && products.length === 0 && <div className="notice" role="status">Loading products from the catalog…</div>}
+    {resolvedActiveTab === "coupons" && couponsLoading && coupons.length === 0 && <div className="notice" role="status">Loading coupons…</div>}
+    {resolvedActiveTab === "coupons" && couponsError && <div className="notice" role="alert">{couponsError} <button type="button" className="text-action" onClick={() => setCouponLoadAttempt((attempt) => attempt + 1)}>Retry</button></div>}
     <div key={resolvedActiveTab} className="commerce-content tab-panel-transition" aria-label={`${tabLabel} section`}>
       {availableTabs.length === 0 && <div className="empty-state">No commerce sections are available for this account.</div>}
       {resolvedActiveTab === "overview" && canViewCommerceReports && <CommerceOverview products={products} coupons={coupons} onNavigate={selectTab} />}

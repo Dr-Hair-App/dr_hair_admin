@@ -58,24 +58,62 @@ export function PatientAssessmentDetailPage({ patientId, referenceNo, permission
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch(`/api/admin/users/${encodeURIComponent(patientId)}`, { cache: "no-store", signal: controller.signal })
-      .then(async (response) => {
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(result?.message || "Could not load this assessment.");
-        const data = result?.data;
+    let isSubscribed = true;
+
+    async function loadAssessment() {
+      setLoadState("loading");
+
+      // 1. First attempt: Direct assessment lookup by reference_no
+      try {
+        const hairTestRes = await fetch(`/api/admin/hair-tests/${encodeURIComponent(referenceNo)}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (hairTestRes.ok) {
+          const hairTestData = await hairTestRes.json().catch(() => ({}));
+          const test = hairTestData?.data?.assessment;
+          if (test && isSubscribed) {
+            setAssessment(test);
+            if (hairTestData?.data?.patient?.name) {
+              setPatientName(String(hairTestData.data.patient.name));
+            }
+            setLoadState("ready");
+            return;
+          }
+        }
+      } catch {
+        // Fall back to patient lookup
+      }
+
+      // 2. Second attempt: Patient record lookup
+      try {
+        const userRes = await fetch(`/api/admin/users/${encodeURIComponent(patientId)}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const userResult = await userRes.json().catch(() => ({}));
+        if (!userRes.ok) throw new Error(userResult?.message || "Could not load this patient record.");
+        const data = userResult?.data;
         if (data?.patient?.name) setPatientName(String(data.patient.name));
-        const match = (Array.isArray(data?.assessments) ? data.assessments : []).find((item: Assessment) => String(item.reference_no) === referenceNo);
-        if (!match) throw new Error("Assessment not found in this patient's record.");
+        const match = (Array.isArray(data?.assessments) ? data.assessments : []).find(
+          (item: Assessment) => String(item.reference_no) === referenceNo
+        );
+        if (!match) throw new Error(`Assessment ${referenceNo} was not found in patient record.`);
+        if (!isSubscribed) return;
         setAssessment(match);
         setLoadState("ready");
-      })
-      .catch((error) => {
-        if (!controller.signal.aborted) {
-          setLoadState("error");
-          onToast(error instanceof Error ? error.message : "Could not load this assessment.");
-        }
-      });
-    return () => controller.abort();
+      } catch (err) {
+        if (!isSubscribed || controller.signal.aborted) return;
+        setLoadState("error");
+        onToast(err instanceof Error ? err.message : "Could not load this assessment.");
+      }
+    }
+
+    void loadAssessment();
+    return () => {
+      isSubscribed = false;
+      controller.abort();
+    };
   }, [onToast, patientId, referenceNo]);
 
   const answers = useMemo(() => assessment ? Object.entries(assessment)
@@ -109,7 +147,55 @@ export function PatientAssessmentDetailPage({ patientId, referenceNo, permission
   };
 
   if (loadState === "loading") return <main className="page-wrap flex min-h-64 items-center justify-center gap-3 text-sm text-slate-500"><LoaderCircle className="animate-spin" size={18} />Loading assessment…</main>;
-  if (loadState === "error" || !assessment) return <main className="page-wrap"><section className="card border border-rose-200 bg-rose-50 p-5 text-sm text-rose-800">Assessment could not be loaded. <button className="button button-secondary ml-2" onClick={() => onBack ? onBack() : router.push(`/patients/${encodeURIComponent(patientId)}`)}>Back to patient record</button></section></main>;
+  if (loadState === "error" || !assessment) {
+    return (
+      <main className="page-wrap w-full min-w-0 py-6">
+        <section className="card border border-rose-200 bg-rose-50/60 p-6 rounded-2xl space-y-4">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center text-rose-700 shrink-0 font-bold">
+              !
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-rose-900">Assessment could not be loaded</h2>
+              <p className="mt-1 text-xs text-rose-700">
+                Assessment reference <span className="font-mono font-semibold">{referenceNo}</span> was not found in patient record <span className="font-mono font-semibold">{patientId}</span>, or the assessment may be pending review.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-rose-200/60">
+            <button
+              type="button"
+              className="button button-primary button-small"
+              onClick={() => (onBack ? onBack() : router.push(`/patients/${encodeURIComponent(patientId)}`))}
+            >
+              Patient record ({patientId})
+            </button>
+            <button
+              type="button"
+              className="button button-secondary button-small"
+              onClick={() => router.push("/tests")}
+            >
+              Hair Tests directory
+            </button>
+            <button
+              type="button"
+              className="button button-secondary button-small"
+              onClick={() => router.push("/patients")}
+            >
+              All patients
+            </button>
+            <button
+              type="button"
+              className="button button-secondary button-small"
+              onClick={() => window.location.reload()}
+            >
+              Retry
+            </button>
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   const archived = assessment.status === "archived";
   const aiStatus = String(assessment.ai_assessment_status || (assessment.ai_assessment ? "ready" : "not_available"));

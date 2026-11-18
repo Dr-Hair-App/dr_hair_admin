@@ -3,7 +3,7 @@
 import {
   Bell, CalendarDays, ChevronLeft, Flag,
   Gauge, LayoutDashboard, LogOut, Package, PanelsTopLeft, Settings,
-  ShieldCheck, ShoppingBag, UsersRound, X,
+  ShieldCheck, ShoppingBag, UsersRound,
 } from "lucide-react";
 import Image from "next/image";
 import { createPortal } from "react-dom";
@@ -80,13 +80,59 @@ export function AdminShell({
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [backendHealth, setBackendHealth] = useState<"checking" | "available" | "unavailable">("checking");
+  const [backendHealthRefresh, setBackendHealthRefresh] = useState(0);
   const [navTooltip, setNavTooltip] = useState<{ label: string; left: number; top: number } | null>(null);
 
   // Notifications state
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const unreadCount = notifications.filter((n) => !n.read).length;
+  const openWorkspaceSettings = () => {
+    setBackendHealth("checking");
+    setSettingsModalOpen(true);
+  };
+  const refreshBackendHealth = () => {
+    setBackendHealth("checking");
+    setBackendHealthRefresh((value) => value + 1);
+  };
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/admin/dashboard/summary", { cache: "no-store", signal: controller.signal })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        const recent = body?.data?.recentActivity;
+        if (Array.isArray(recent) && recent.length > 0) {
+          const items: NotificationItem[] = recent.slice(0, 6).map((act: Record<string, unknown>) => ({
+            id: String(act.id || Math.random()),
+            title: `${act.action}: ${act.target || act.who || "Patient record"}`,
+            time: String(act.time || "Recently"),
+            read: false,
+            page: (act.type === "Bookings" ? "bookings" : act.type === "Orders" ? "orders" : act.type === "Testing" ? "tests" : "overview") as PageKey,
+            type: (act.type === "Bookings" ? "booking" : act.type === "Testing" ? "report" : "system") as NotificationItem["type"],
+          }));
+          setNotifications(items);
+        }
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
 
   const [headerScrolled, setHeaderScrolled] = useState(false);
+
+  useEffect(() => {
+    if (!settingsModalOpen) return;
+    const controller = new AbortController();
+    fetch("/api/admin/health", { cache: "no-store", signal: controller.signal })
+      .then((response) => response.json().then((body) => ({ response, body })))
+      .then(({ response, body }) => {
+        if (!controller.signal.aborted) setBackendHealth(response.ok && body?.available === true ? "available" : "unavailable");
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setBackendHealth("unavailable");
+      });
+    return () => controller.abort();
+  }, [backendHealthRefresh, settingsModalOpen]);
 
   const notificationsRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
@@ -235,14 +281,14 @@ export function AdminShell({
         <nav onScroll={() => setNavTooltip(null)} className="flex max-h-[calc(100vh-220px)] w-fit flex-col items-center gap-1.5 overflow-y-auto overscroll-contain rounded-full border border-slate-100/80 bg-white/95 p-1.5 shadow-[0_2px_12px_rgba(26,54,93,0.08)] backdrop-blur-md [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Workspace tabs">
           {nav.map((item) => {
             const isActive = page === item.key;
-            return <button key={item.key} type="button" aria-label={item.label} aria-current={isActive ? "page" : undefined} onMouseEnter={(event) => showNavTooltip(event.currentTarget, item.label)} onMouseLeave={() => setNavTooltip(null)} onFocus={(event) => showNavTooltip(event.currentTarget, item.label)} onBlur={() => setNavTooltip(null)} onClick={() => { setNavTooltip(null); onPageChange(item.key); }} className={`relative flex h-11 w-11 items-center justify-center rounded-full transition-[background-color,color,transform] duration-200 ease-out motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 ${isActive ? "bg-teal-50 text-teal-700" : "text-slate-500 hover:translate-x-0.5 hover:bg-slate-50 hover:text-slate-900"}`}>
+            return <button key={item.key} type="button" aria-label={item.label} aria-current={isActive ? "page" : undefined} onMouseEnter={(event) => showNavTooltip(event.currentTarget, item.label)} onMouseLeave={() => setNavTooltip(null)} onFocus={(event) => showNavTooltip(event.currentTarget, item.label)} onBlur={() => setNavTooltip(null)} onClick={() => { setNavTooltip(null); onPageChange(item.key); }} className={`relative flex h-11 w-11 items-center justify-center rounded-full transition-[background-color,color,transform,box-shadow] duration-200 ease-out motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 ${isActive ? "bg-teal-50 text-teal-700 shadow-xs ring-1 ring-teal-200/60 font-semibold" : "text-slate-500 hover:translate-x-0.5 hover:bg-slate-50 hover:text-slate-900"}`}>
               {getNavIcon(item.key, isActive)}
-              {Boolean(item.count) && <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-teal-600" />}
+              {Boolean(item.count) && <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-teal-600 ring-2 ring-white" />}
             </button>;
           })}
         </nav>
         <div className="rounded-full border border-slate-100 bg-white/95 p-1.5 shadow-sm">
-          <button type="button" aria-label="Settings" title="Settings" onClick={() => setSettingsModalOpen(true)} className="flex h-11 w-11 items-center justify-center rounded-full text-slate-500 transition-colors duration-200 hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"><Settings size={19} /></button>
+          <button type="button" aria-label="Settings" title="Settings" onClick={openWorkspaceSettings} className="flex h-11 w-11 items-center justify-center rounded-full text-slate-500 transition-colors duration-200 hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"><Settings size={19} /></button>
         </div>
         <div ref={desktopProfileRef} className="relative flex flex-col items-center gap-1.5 rounded-full border border-slate-100/80 bg-white/95 p-1.5 shadow-sm backdrop-blur-md">
           <button type="button" aria-label={`Profile: ${userName}`} title={userName} aria-expanded={profileMenuOpen} onClick={() => setProfileMenuOpen((open) => !open)} className="flex h-11 w-11 items-center justify-center rounded-full transition-transform duration-200 hover:scale-105 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600">
@@ -252,7 +298,7 @@ export function AdminShell({
           {profileMenuOpen && <div className="absolute bottom-0 left-[calc(100%+14px)] z-50 w-64 space-y-3 rounded-2xl border border-slate-200/90 bg-white p-4 shadow-xl animate-in fade-in slide-in-from-left-3 duration-200 motion-reduce:animate-none">
             <div className="border-b border-slate-100 pb-3"><h4 className="truncate text-xs font-bold text-[#1A365D]">{userName}</h4><p className="text-[10px] capitalize text-slate-400">{role.replace("-", " ")}</p></div>
             {isOwner && <div className="space-y-1"><label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Preview role</label><select value={role} onChange={(event) => { onRoleChange(event.target.value as Role); setProfileMenuOpen(false); }} className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs font-bold text-[#1A365D] outline-none"><option value="super-admin">Super Admin</option><option value="admin">Clinician</option></select></div>}
-            <div className="space-y-1 border-t border-slate-100 pt-2"><button type="button" onClick={() => { setSettingsModalOpen(true); setProfileMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"><Settings size={15} />Workspace settings</button><button type="button" onClick={onSignOut} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-red-600 hover:bg-red-50"><LogOut size={15} />Sign out</button></div>
+            <div className="space-y-1 border-t border-slate-100 pt-2"><button type="button" onClick={() => { openWorkspaceSettings(); setProfileMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"><Settings size={15} />Workspace settings</button><button type="button" onClick={onSignOut} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-red-600 hover:bg-red-50"><LogOut size={15} />Sign out</button></div>
           </div>}
         </div>
       </aside>
@@ -279,15 +325,13 @@ export function AdminShell({
               )}
               <div className="min-w-0">
                 <div className="flex items-center gap-2.5 flex-wrap">
-                  {page === "overview"
-                    ? <h1 className="text-lg font-bold leading-tight tracking-tight text-[#1A365D] sm:text-2xl">{activeTitle}</h1>
-                    : <span className="text-lg font-bold leading-tight tracking-tight text-[#1A365D] sm:text-2xl">Dr. Hair</span>}
+                  <h1 className="text-lg font-bold leading-tight tracking-tight text-[#1A365D] sm:text-2xl">{activeTitle}</h1>
                   <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white text-[11px] font-semibold text-slate-600 border border-slate-200/80 shadow-2xs">
                     <span className="h-1.5 w-1.5 rounded-full bg-[#0D9488]" />
                     {new Intl.DateTimeFormat("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" }).format(new Date())}
                   </span>
                 </div>
-                <p className="truncate text-xs font-medium text-slate-500 sm:text-sm">{page === "overview" ? activeSubtitle : "Clinic admin"}</p>
+                <p className="truncate text-xs font-medium text-slate-500 sm:text-sm">{activeSubtitle}</p>
               </div>
             </div>
 
@@ -337,7 +381,7 @@ export function AdminShell({
                   </div>
                   {isOwner && <div className="space-y-1"><label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Preview role</label><select value={role} onChange={(event) => { onRoleChange(event.target.value as Role); setProfileMenuOpen(false); }} className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs font-bold text-[#1A365D] outline-none"><option value="super-admin">Super Admin</option><option value="admin">Clinician</option></select></div>}
                   <div className="space-y-1 border-t border-slate-100 pt-2">
-                    <button type="button" onClick={() => { setSettingsModalOpen(true); setProfileMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"><Settings size={15} />Workspace settings</button>
+                    <button type="button" onClick={() => { openWorkspaceSettings(); setProfileMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"><Settings size={15} />Workspace settings</button>
                     <button type="button" onClick={onSignOut} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-red-600 transition-colors hover:bg-red-50"><LogOut size={15} />Sign out</button>
                   </div>
                 </div>}
@@ -398,12 +442,15 @@ export function AdminShell({
 
             <div className="p-3.5 rounded-2xl bg-slate-50 flex items-center justify-between">
               <div>
-                <div className="font-semibold text-[#1A365D]">Backend API Endpoint</div>
-                <div className="text-slate-500 text-[10px] truncate max-w-[220px]">
-                  Connected through deployment configuration
+                <div className="font-semibold text-[#1A365D]">Backend API health</div>
+                <div className="text-slate-500 text-[10px] truncate max-w-[220px]" aria-live="polite">
+                  {backendHealth === "checking" ? "Checking backend…" : backendHealth === "available" ? "Backend is responding" : "Backend is unavailable"}
                 </div>
               </div>
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" title="Connected" />
+              <div className="flex items-center gap-2">
+                <span className={`w-2.5 h-2.5 rounded-full ${backendHealth === "available" ? "bg-emerald-500" : backendHealth === "checking" ? "bg-amber-400 animate-pulse" : "bg-rose-500"}`} title={backendHealth} />
+                <button type="button" className="text-[10px] font-semibold text-[#0D9488] hover:underline" onClick={refreshBackendHealth}>Check</button>
+              </div>
             </div>
 
             <div className="p-3.5 rounded-2xl bg-slate-50 space-y-2">

@@ -50,8 +50,17 @@ type Credentials = { loginId: string; password: string };
 function generateRandomPassword(): string {
   const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%&*";
   let pass = "";
-  for (let i = 0; i < 14; i++) {
-    pass += chars.charAt(Math.floor(Math.random() * chars.length));
+  const cryptoApi = globalThis.crypto;
+  if (!cryptoApi?.getRandomValues) throw new Error("Secure password generation is unavailable in this browser.");
+  const unbiasedLimit = Math.floor(256 / chars.length) * chars.length;
+  while (pass.length < 14) {
+    const bytes = new Uint8Array(20);
+    cryptoApi.getRandomValues(bytes);
+    for (const byte of bytes) {
+      if (byte >= unbiasedLimit) continue;
+      pass += chars.charAt(byte % chars.length);
+      if (pass.length === 14) break;
+    }
   }
   return pass;
 }
@@ -451,7 +460,10 @@ export function AdminAccountManagement() {
                     <button
                       type="button"
                       className="px-1 py-1 text-xs text-slate-500 hover:text-slate-800"
-                      onClick={() => setPassword(generateRandomPassword())}
+                      onClick={() => {
+                        try { setPassword(generateRandomPassword()); setError(""); }
+                        catch { setError("Secure password generation is unavailable here. Enter a password manually."); }
+                      }}
                       title="Generate strong random password"
                       aria-label="Generate a strong password"
                     >
@@ -984,7 +996,10 @@ export function AdminAccountManagement() {
                   <button
                     type="button"
                     className="text-xs text-slate-500 hover:text-slate-800 px-1 py-1"
-                    onClick={() => setNewPassword(generateRandomPassword())}
+                    onClick={() => {
+                      try { setNewPassword(generateRandomPassword()); setNotice(""); }
+                      catch { setNotice("Secure password generation is unavailable here. Enter a password manually."); }
+                    }}
                   >
                     <RefreshCw size={12} className="inline mr-1" />
                     Random

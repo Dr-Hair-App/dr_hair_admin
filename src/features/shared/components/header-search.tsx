@@ -129,6 +129,8 @@ export function HeaderSearch({
   const mobileInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestIdRef = useRef(0);
 
   // Sync incoming globalSearch if updated externally
   useEffect(() => {
@@ -158,6 +160,11 @@ export function HeaderSearch({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  useEffect(() => () => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    abortControllerRef.current?.abort();
+  }, []);
+
   // Close palette on click outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -185,7 +192,9 @@ export function HeaderSearch({
   const performSearch = useCallback(
     async (queryText: string) => {
       const trimmed = queryText.trim();
+      const requestId = ++requestIdRef.current;
       if (!trimmed) {
+        abortControllerRef.current?.abort();
         setPatients([]);
         setProducts([]);
         setBookings([]);
@@ -217,13 +226,13 @@ export function HeaderSearch({
           }),
         ]);
 
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || requestId !== requestIdRef.current) return;
 
         // Process Patients
+        let nextPatients: PatientSearchResult[] = [];
         if (usersRes.status === "fulfilled" && usersRes.value.ok) {
           const items = apiItems(await usersRes.value.json().catch(() => ({})));
-          setPatients(
-            items.map((u) => ({
+          nextPatients = items.map((u) => ({
               id: String(u.id ?? ""),
               name: String(u.name || "Patient"),
               email: typeof u.email === "string" ? u.email : undefined,
@@ -231,17 +240,14 @@ export function HeaderSearch({
               patientCode: typeof u.patient_code === "string" ? u.patient_code : (typeof u.reference_no === "string" ? u.reference_no : undefined),
               gender: typeof u.gender === "string" ? u.gender : undefined,
               age: typeof u.age === "number" ? u.age : undefined,
-            }))
-          );
-        } else {
-          setPatients([]);
+            }));
         }
 
         // Process Products
+        let nextProducts: ProductSearchResult[] = [];
         if (productsRes.status === "fulfilled" && productsRes.value.ok) {
           const items = apiItems(await productsRes.value.json().catch(() => ({})));
-          setProducts(
-            items.map((p) => ({
+          nextProducts = items.map((p) => ({
               id: String(p.id ?? ""),
               name: String(p.name || p.title || "Product"),
               sku: typeof p.sku === "string" ? p.sku : undefined,
@@ -249,17 +255,14 @@ export function HeaderSearch({
               stock: typeof p.stock === "number" ? p.stock : undefined,
               status: typeof p.status === "string" ? p.status : undefined,
               category: typeof p.category === "string" ? p.category : undefined,
-            }))
-          );
-        } else {
-          setProducts([]);
+            }));
         }
 
         // Process Appointments
+        let nextBookings: BookingSearchResult[] = [];
         if (appointmentsRes.status === "fulfilled" && appointmentsRes.value.ok) {
           const items = apiItems(await appointmentsRes.value.json().catch(() => ({})));
-          setBookings(
-            items.map((b) => ({
+          nextBookings = items.map((b) => ({
               id: String(b.id ?? ""),
               customer: String(b.customer || b.name || "Patient"),
               service: String(b.service || b.reason || "Clinic consultation"),
@@ -268,11 +271,12 @@ export function HeaderSearch({
               status: String(b.status || "Confirmed"),
               doctorName: typeof b.doctorName === "string" ? b.doctorName : (typeof b.doctor_name === "string" ? b.doctor_name : undefined),
               tokenNumber: typeof b.tokenNumber === "string" ? b.tokenNumber : (typeof b.opd_token === "string" ? b.opd_token : undefined),
-            }))
-          );
-        } else {
-          setBookings([]);
+            }));
         }
+        if (controller.signal.aborted || requestId !== requestIdRef.current) return;
+        setPatients(nextPatients);
+        setProducts(nextProducts);
+        setBookings(nextBookings);
       } catch {
         // Ignored aborted request errors
       } finally {
@@ -286,17 +290,30 @@ export function HeaderSearch({
 
   // Debounced input change
   const handleQueryChange = (val: string) => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     setLocalQuery(val);
     onSearchChange(val);
     setSelectedIndex(0);
-
-    const timer = setTimeout(() => {
+    abortControllerRef.current?.abort();
+    setIsSearching(false);
+    if (!val.trim()) {
+      requestIdRef.current += 1;
+      setPatients([]);
+      setProducts([]);
+      setBookings([]);
+      setIsSearching(false);
+      return;
+    }
+    debounceTimerRef.current = setTimeout(() => {
       performSearch(val);
     }, 250);
-    return () => clearTimeout(timer);
   };
 
   const handleClear = () => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = null;
+    requestIdRef.current += 1;
+    abortControllerRef.current?.abort();
     setLocalQuery("");
     onSearchChange("");
     setPatients([]);

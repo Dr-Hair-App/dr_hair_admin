@@ -137,17 +137,24 @@ export function NotificationCenter({
     });
 
     const patientItems: DashboardNotification[] = liveData.hairTests
-      .filter((test) => ["submitted", "review", "in_review", "pending"].includes(recordText(test, "status").toLowerCase()))
-      .map((patient) => ({
-        id: `patient-review:${recordText(patient, "id", "reference_no", "referenceNo")}`,
+      .filter((test) => ["submitted", "review", "in_review", "under_review", "pending"].includes(recordText(test, "status").toLowerCase()))
+      .map((test) => {
+        const patientName = recordText(test, "full_name", "patient_name", "name");
+        const concern = recordText(test, "main_concern", "hair_loss_stage", "primary_concern");
+        const detail = [patientName, concern]
+          .filter((value) => value !== "Details unavailable")
+          .join(" · ") || "Hair assessment submitted";
+        return {
+        id: `patient-review:${recordText(test, "reference_no", "referenceNo", "id")}`,
         category: "Patients",
         title: "Patient assessment needs review",
-        detail: `${recordText(patient, "patient_name", "name", "patient_code")} · ${recordText(patient, "test_name", "primary_concern", "stage")}`,
-        time: recordText(patient, "created_at", "submitted_at", "date"),
+        detail,
+        time: recordText(test, "created_at", "submitted_at", "date"),
         page: "patients",
         anchor: "patient-reviews",
         unreadTone: "bg-[#EEF4FF] text-[#436693]",
-      }));
+      };
+      });
 
     const reportItems: DashboardNotification[] = liveData.reports
       .filter((report) => ["draft", "in review", "pending", "ready"].includes(recordText(report, "status").toLowerCase()))

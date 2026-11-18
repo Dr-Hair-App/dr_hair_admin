@@ -40,6 +40,7 @@ export interface ReviewContentItem {
   avatar: string;
   mediaAssets?: ContentMediaAssets;
   verified: boolean;
+  consentVerified?: boolean;
   status: Status;
   updated: string;
 }

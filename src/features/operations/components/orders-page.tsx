@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, ArrowRight, BadgeIndianRupee, Boxes, Check, CreditCard, Download,
-  Filter, MapPin, PackageCheck, ShieldAlert, Truck, Undo2, UserRound,
+  Filter, MapPin, PackageCheck, RefreshCw, ShieldAlert, Truck, Undo2, UserRound,
 } from "lucide-react";
 import { Avatar, Modal, StatusPill, TableToolbar } from "../../shared/components/ui";
 import { SlidingTabList } from "../../shared/components/sliding-tab-list";
@@ -203,6 +203,8 @@ function canStartPreparing(order: OrderRecord) {
 export function OrdersPage({ globalSearch, onToast, onAudit = () => {}, canExport = false }: { globalSearch: string; onToast: (message: string) => void; onAudit?: (action: string, target: string) => void; canExport?: boolean }) {
   const [topTab, setTopTab] = useState<"orders" | "payments">("orders");
   const [orders, setOrders] = useState<OrderRecord[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(true);
+  const [ordersError, setOrdersError] = useState("");
   const [tab, setTab] = useState<QueueTab>("All orders");
   const [query, setQuery] = useState("");
   const [paymentFilter, setPaymentFilter] = useState("Any payment");
@@ -224,43 +226,33 @@ export function OrdersPage({ globalSearch, onToast, onAudit = () => {}, canExpor
   const [restockReturnedItems, setRestockReturnedItems] = useState(false);
   const [returnOrder, setReturnOrder] = useState<OrderRecord | null>(null);
   const [returnReason, setReturnReason] = useState("Changed my mind");
+  const ordersRequestRef = useRef<AbortController | null>(null);
 
-  const reloadOrders = async () => {
+  const reloadOrders = useCallback(async () => {
+    ordersRequestRef.current?.abort();
+    const controller = new AbortController();
+    ordersRequestRef.current = controller;
+    setOrdersLoading(true);
+    setOrdersError("");
     try {
-      const res = await fetch("/api/admin/orders");
-      if (res.ok) {
-        const json = await res.json();
-        const items = json.data?.items || json.items || [];
-        if (Array.isArray(items)) {
-          setOrders(items.map(mapBackendOrder));
-        }
-      }
-    } catch {
-      // Keep existing orders on error
+      const res = await fetch("/api/admin/orders", { cache: "no-store", signal: controller.signal });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof json.message === "string" ? json.message : "Orders could not be loaded.");
+      const items = json.data?.items || json.items;
+      if (!Array.isArray(items)) throw new Error("The order service returned an invalid response.");
+      if (controller.signal.aborted) return;
+      setOrders(items.map(mapBackendOrder));
+    } catch (error) {
+      if (!controller.signal.aborted) setOrdersError(error instanceof Error ? error.message : "Orders could not be loaded.");
+    } finally {
+      if (!controller.signal.aborted) setOrdersLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    let ignore = false;
-    const fetchOrders = async () => {
-      try {
-        const res = await fetch("/api/admin/orders");
-        if (res.ok && !ignore) {
-          const json = await res.json();
-          const items = json.data?.items || json.items || [];
-          if (Array.isArray(items)) {
-            setOrders(items.map(mapBackendOrder));
-          }
-        }
-      } catch {
-        // Keep existing orders on error
-      }
-    };
-    void fetchOrders();
-    return () => {
-      ignore = true;
-    };
-  }, []);
+    void Promise.resolve().then(() => reloadOrders());
+    return () => ordersRequestRef.current?.abort();
+  }, [reloadOrders]);
 
   const normalizedOrders = useMemo(() => orders.map(normalizeOrder), [orders]);
   const selectedOrder = normalizedOrders.find((order) => order.id === selectedOrderId) ?? null;
@@ -585,7 +577,7 @@ export function OrdersPage({ globalSearch, onToast, onAudit = () => {}, canExpor
         <CreditCard size={15} /><span>Received Payments (Razorpay)</span>
       </button>
       </SlidingTabList>
-      {canExport && topTab === "orders" && <button className="button button-secondary order-export-button" onClick={exportCsv}><Download size={14} />Export filtered CSV</button>}
+      {topTab === "orders" && <div className="flex flex-wrap gap-2 justify-end">{canExport && <button className="button button-secondary order-export-button" onClick={exportCsv}><Download size={14} />Export filtered CSV</button>}<button type="button" className="button button-secondary order-export-button" onClick={() => void reloadOrders()} disabled={ordersLoading}><RefreshCw size={14} className={ordersLoading ? "animate-spin" : ""} />Refresh orders</button></div>}
     </div>
 
     <div key={topTab} id={topTab === "orders" ? "orders-fulfilment-panel" : "orders-payments-panel"} role="tabpanel" aria-label={topTab === "orders" ? "Orders and fulfilment" : "Received payments"} className="tab-panel-transition">
@@ -594,11 +586,13 @@ export function OrdersPage({ globalSearch, onToast, onAudit = () => {}, canExpor
     ) : (
       <>
 
+        {ordersError && <div className="notice" role="alert">{ordersError}{orders.length > 0 ? " Showing the last successfully loaded orders." : ""} <button type="button" className="text-action" onClick={() => void reloadOrders()}>Retry</button></div>}
+
         <div className="kpi-grid order-queue-metrics grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <QueueMetric icon={<PackageCheck size={15} />} label="New · paid" value={String(normalizedOrders.filter((order) => order.status === "New" && order.paymentStatus === "Paid").length)} foot="Ready to begin fulfilment" tone="blue" />
-          <QueueMetric icon={<Boxes size={15} />} label="Preparing" value={String(counts.Preparing)} foot="Pack and assign dispatch" tone="violet" />
-          <QueueMetric icon={<Truck size={15} />} label="In transit" value={String(counts.Shipped)} foot="Orders with courier tracking" tone="teal" />
-          <QueueMetric icon={<ShieldAlert size={15} />} label="Needs attention" value={String(counts["Needs attention"])} foot="Resolve before fulfilment" tone="amber" />
+          <QueueMetric icon={<PackageCheck size={15} />} label="New · paid" value={ordersLoading && !orders.length ? "—" : String(normalizedOrders.filter((order) => order.status === "New" && order.paymentStatus === "Paid").length)} foot="Ready to begin fulfilment" tone="blue" />
+          <QueueMetric icon={<Boxes size={15} />} label="Preparing" value={ordersLoading && !orders.length ? "—" : String(counts.Preparing)} foot="Pack and assign dispatch" tone="violet" />
+          <QueueMetric icon={<Truck size={15} />} label="In transit" value={ordersLoading && !orders.length ? "—" : String(counts.Shipped)} foot="Orders with courier tracking" tone="teal" />
+          <QueueMetric icon={<ShieldAlert size={15} />} label="Needs attention" value={ordersLoading && !orders.length ? "—" : String(counts["Needs attention"])} foot="Resolve before fulfilment" tone="amber" />
         </div>
 
         <section className="card order-workspace-card">
@@ -628,9 +622,9 @@ export function OrdersPage({ globalSearch, onToast, onAudit = () => {}, canExpor
               <td><span className={`order-next-step ${order.status === "Needs attention" ? "attention" : ""}`}>{nextAction(order)}</span></td>
               <td><button className="row-action" aria-label={`Open order ${order.id}`} onClick={() => setSelectedOrderId(order.id)}><ArrowRight size={15} /></button></td>
             </tr>)}
-            {filteredOrders.length === 0 && <tr><td colSpan={9}><div className="empty-state">No orders match these filters. Try a different queue or reset the filters.</div></td></tr>}
+            {filteredOrders.length === 0 && <tr><td colSpan={9}><div className="empty-state">{ordersLoading ? "Loading orders…" : ordersError ? "Order data could not be loaded. Use Retry above." : "No orders match these filters. Try a different queue or reset the filters."}</div></td></tr>}
           </tbody></table></div>
-          <div className="table-footer"><span>{filteredOrders.length} orders · live order queue</span><span>Page 1 of 1</span></div>
+          <div className="table-footer"><span>{ordersLoading && !orders.length ? "Loading live order queue…" : `${filteredOrders.length} orders · live order queue`}</span><span>Page 1 of 1</span></div>
         </section>
 
         {selectedOrder && <Modal className="order-details-modal order-workflow-modal" title={`Order ${selectedOrder.id}`} description={`${selectedOrder.customer} · ${selectedOrder.date}`} submitLabel={nextAction(selectedOrder)} onClose={() => setSelectedOrderId(null)} onSubmit={handlePrimaryAction}>

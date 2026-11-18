@@ -114,7 +114,7 @@ export function AdminApplication({ initialPage = "overview", initialPatientId = 
           return;
         }
         const rawResult: unknown = await response.json().catch(() => ({}));
-        const result = (rawResult && typeof rawResult === "object" ? rawResult : {}) as Record<string, any>;
+        const result = (rawResult && typeof rawResult === "object" ? rawResult : {}) as Record<string, unknown>;
         const admin = result?.admin as AdminIdentity | undefined;
         if (!result?.authenticated || !admin?.email || !["admin", "super_admin"].includes(admin.role)) {
           setAuth({ status: "signed-out" });
@@ -135,9 +135,10 @@ export function AdminApplication({ initialPage = "overview", initialPatientId = 
     fetch("/api/admin/features?platform=admin", { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
         const rawPayload: unknown = await response.json().catch(() => ({}));
-        const payload = (rawPayload && typeof rawPayload === "object" ? rawPayload : {}) as Record<string, any>;
-        if (!response.ok) throw new Error(payload?.message || "Could not load admin module settings.");
-        const items = Array.isArray(payload?.data?.items) ? payload.data.items : [];
+        const payload = (rawPayload && typeof rawPayload === "object" ? rawPayload : {}) as Record<string, unknown>;
+        const payloadData = payload?.data && typeof payload.data === "object" ? (payload.data as Record<string, unknown>) : {};
+        if (!response.ok) throw new Error(typeof payload?.message === "string" ? payload.message : "Could not load admin module settings.");
+        const items = Array.isArray(payloadData.items) ? payloadData.items : [];
         const values = Object.fromEntries(items
           .filter((item: { key?: string }) => typeof item.key === "string" && item.key.startsWith("admin_"))
           .map((item: { key: string; enabled?: boolean }) => [item.key.slice("admin_".length), item.enabled !== false]));

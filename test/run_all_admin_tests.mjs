@@ -12,6 +12,9 @@ const testFiles = [
   'test/product_catalog_workflow.test.mjs',
   'test/content_updates_workflow.test.mjs',
   'test/reports_and_analytics_workflow.test.mjs',
+  'test/routes_and_pages_verification.test.mjs',
+  'test/admin_production_regressions.test.mjs',
+  'test/admin_media_upload_proxy.test.mjs',
   'test/e2e_browser_audit.test.mjs',
 ];
 

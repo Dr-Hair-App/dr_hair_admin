@@ -22,7 +22,9 @@ export async function validateSmartImage(file: File): Promise<void> {
   const extension = file.name.split(".").pop()?.toLowerCase() || "";
   const expectedMime = MIME_BY_EXTENSION[extension];
   if (!expectedMime) throw new Error("Choose a JPG, PNG, WebP, AVIF, HEIC, HEIF, or GIF image.");
-  if (file.type && file.type.toLowerCase() !== expectedMime) {
+  const isJpeg = (extension === "jpg" || extension === "jpeg") && ["image/jpeg", "image/jpg", "image/pjpeg"].includes((file.type || "").toLowerCase());
+  const mimeMatches = isJpeg || (file.type && file.type.toLowerCase() === expectedMime);
+  if (file.type && !mimeMatches) {
     throw new Error("The file extension and image MIME type do not match.");
   }
 

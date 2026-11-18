@@ -74,8 +74,8 @@ export default function SupportPage() {
       if (response.ok) {
         setSubmitted(true);
       } else {
-        const data = await response.json().catch(() => ({}));
-        setError(data.message || "Failed to submit inquiry. Please try again.");
+        const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+        setError(typeof data.message === "string" ? data.message : "Failed to submit inquiry. Please try again.");
       }
     } catch {
       setError("Network error. Please try again later or call our clinic directly.");

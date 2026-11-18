@@ -23,7 +23,7 @@ import {
   UsersRound,
   ZoomIn,
 } from "lucide-react";
-import { Avatar, Modal, PageHeader, StatusPill, TableToolbar } from "../../shared/components/ui";
+import { Avatar, Modal, PageHeader, Skeleton, StatusPill, TableToolbar } from "../../shared/components/ui";
 import type { BookingRecord, PatientRecord } from "../../shared/types";
 import type { AdminPermissionId } from "../../shared/types";
 import { OrdersPage } from "./orders-page";
@@ -1630,7 +1630,25 @@ function PatientDirectory({
         <table>
           <thead><tr><th>Patient</th><th>Email</th><th>Phone</th><th>Age & location</th><th>Registered</th><th>Photo</th><th /></tr></thead>
           <tbody>
-            {loading && patients.length === 0 && <tr><td colSpan={7}><div className="empty-state">Loading patient profiles…</div></td></tr>}
+            {loading && patients.length === 0 && Array.from({ length: 6 }).map((_, idx) => (
+              <tr key={`skeleton-${idx}`} className="animate-pulse">
+                <td>
+                  <div className="person">
+                    <Skeleton variant="circular" className="h-8 w-8 shrink-0" />
+                    <div className="space-y-1">
+                      <Skeleton variant="text" className="h-3.5 w-28" />
+                      <Skeleton variant="text" className="h-2.5 w-16" />
+                    </div>
+                  </div>
+                </td>
+                <td><Skeleton variant="text" className="h-3.5 w-32" /></td>
+                <td><Skeleton variant="text" className="h-3.5 w-24" /></td>
+                <td><Skeleton variant="text" className="h-3.5 w-28" /></td>
+                <td><Skeleton variant="text" className="h-3.5 w-20" /></td>
+                <td><Skeleton variant="text" className="h-3.5 w-16" /></td>
+                <td><Skeleton variant="rectangular" className="h-7 w-20 rounded-lg" /></td>
+              </tr>
+            ))}
             {!loading && !error && patients.map((patient) => <tr key={patient.id} className="cursor-pointer hover:bg-teal-50/50" onClick={() => onOpenPatient(patient.patientCode || patient.id)}>
               <td><div className="person"><Avatar initials={patient.initials} /><div><div className="person-name">{patient.name}</div><div className="person-sub">ID {patient.patientCode || patient.id}</div></div></div></td>
               <td>{patient.email || "—"}</td>

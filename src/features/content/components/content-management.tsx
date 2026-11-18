@@ -21,13 +21,8 @@ import {
 } from "lucide-react";
 import { Avatar, Modal, PageHeader, StatusPill, TableToolbar } from "../../shared/components/ui";
 import { FullSizeImageViewer, type ViewerImage } from "../../shared/components/full-size-image-viewer";
-import { useSessionState } from "../../shared/lib/use-session-state";
 import { prepareSmartImage } from "../../shared/lib/smart-image-upload";
-import {
-  initialBanners,
-  initialCategories,
-  initialVideos,
-} from "../lib/demo-data";
+import { initialVideos } from "../lib/demo-data";
 import type {
   BannerContentItem,
   ContentTab,
@@ -37,8 +32,6 @@ import type {
 import type { Status } from "../../shared/types";
 import type { AdminPermissionId } from "../../shared/types";
 import type { CouponRecord } from "../../commerce/types";
-import type { ProductRecord } from "../../commerce/types";
-import { initialProducts } from "../../commerce/lib/demo-data";
 import { destinationFromRoute } from "../lib/app-destinations";
 
 const appBannerRoutes = [
@@ -96,18 +89,57 @@ function mapSavedVideo(item: Record<string, unknown>): VideoContentItem {
 }
 
 function mapSavedReview(item: Record<string, unknown>): ReviewContentItem {
+  const status = item.status === "active"
+    ? "Published"
+    : item.status === "rejected"
+      ? "Inactive"
+      : item.status === "draft"
+        ? "Draft"
+        : "Review";
   return {
     id: String(item.id || ""),
-    patientName: String(item.name || item.patientName || "Verified Patient"),
-    rating: typeof item.rating === "number" ? item.rating : 5,
+    patientName: String(item.name || item.patientName || "Patient name unavailable"),
+    rating: typeof item.rating === "number" ? item.rating : 0,
     category: String(item.category || "General"),
-    treatment: String(item.treatment || item.category || "Hair Care"),
-    duration: String(item.duration || "Verified Patient"),
+    treatment: String(item.treatment || ""),
+    duration: String(item.duration || ""),
     comment: String(item.message || item.comment || ""),
     avatar: String(item.avatar || ""),
-    verified: Boolean(item.is_verified ?? item.verified ?? true),
-    status: item.status === "active" ? "Published" : item.status === "rejected" ? "Inactive" : "Review",
-    updated: item.created_at ? new Date(String(item.created_at)).toLocaleDateString("en-IN") : "Recent",
+    verified: item.is_verified === true,
+    consentVerified: item.consent_verified === true,
+    status,
+    updated: item.updated_at || item.created_at ? new Date(String(item.updated_at || item.created_at)).toLocaleDateString("en-IN") : "Saved",
+  };
+}
+
+function mapSavedBanner(item: Record<string, unknown>): BannerContentItem {
+  const metadata = item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
+    ? item.metadata as Record<string, unknown>
+    : {};
+  const targetRoute = String(item.actionUrl || "/");
+  const mappedStatus = item.status === "published"
+    ? "Published"
+    : item.status === "review"
+      ? "Review"
+      : item.status === "draft"
+        ? "Draft"
+        : "Inactive";
+  return {
+    id: String(item.id || ""),
+    title: String(item.title || "Untitled banner"),
+    subtitle: String(item.subtitle || ""),
+    category: String(metadata.category || ""),
+    imageUrl: String(item.imageUrl || ""),
+    mediaAssets: metadata.mediaAssets as BannerContentItem["mediaAssets"],
+    ctaText: String(metadata.ctaText || ""),
+    targetRoute,
+    destination: destinationFromRoute(targetRoute) ?? undefined,
+    featuredOfferCode: typeof metadata.featuredOfferCode === "string" ? metadata.featuredOfferCode : undefined,
+    startsAt: typeof metadata.startsAt === "string" ? metadata.startsAt : undefined,
+    endsAt: typeof metadata.endsAt === "string" ? metadata.endsAt : undefined,
+    placement: metadata.bannerPlacement === "Home card" ? "Home card" : "Home hero",
+    status: mappedStatus,
+    updated: item.updated_at ? new Date(String(item.updated_at)).toLocaleDateString("en-IN") : "Saved",
   };
 }
 
@@ -132,30 +164,24 @@ export function ContentManagement({
   const canEdit = permissions.includes("content.edit");
   const canUploadMedia = permissions.includes("media.upload");
   const [activeTab, setActiveTab] = useState<ContentTab>(scope === "home" ? "banners" : "videos");
-  const [categories, setCategories] = useSessionState<string[]>(
-    "drhair-demo-content-categories",
-    initialCategories
-  );
-  const [videos, setVideos] = useSessionState<VideoContentItem[]>(
-    "drhair-demo-content-videos",
-    initialVideos
-  );
+  const [categories, setCategories] = useState<string[]>([]);
+  const [videos, setVideos] = useState<VideoContentItem[]>(initialVideos);
   const [savingVideo, setSavingVideo] = useState(false);
   const [isDeletingItem, setIsDeletingItem] = useState(false);
   const [videoLoadError, setVideoLoadError] = useState("");
-  const [reviews, setReviews] = useSessionState<ReviewContentItem[]>(
-    "drhair-demo-content-reviews",
-    []
-  );
-  const [banners, setBanners] = useSessionState<BannerContentItem[]>(
-    "drhair-demo-content-banners",
-    initialBanners
-  );
-  const [catalogProducts] = useSessionState<ProductRecord[]>("drhair-commerce-products", initialProducts);
-  const bannerRoutes = useMemo(() => [
-    ...appBannerRoutes,
-    ...catalogProducts.filter((product) => product.status === "Active" && product.stock > 0 && product.appProductId).map((product) => ({ path: `/products/${encodeURIComponent(product.appProductId!)}`, label: `Product · ${product.name}` })),
-  ], [catalogProducts]);
+  const [reviews, setReviews] = useState<ReviewContentItem[]>([]);
+  const [banners, setBanners] = useState<BannerContentItem[]>([]);
+  const [managedContentLoading, setManagedContentLoading] = useState(scope === "home" && (canEdit || canPublish));
+  const [managedContentError, setManagedContentError] = useState("");
+  const [isRefreshingManagedContent, setIsRefreshingManagedContent] = useState(false);
+  const bannerRoutes = appBannerRoutes;
+
+  const selectContentTab = (tab: ContentTab) => {
+    setManagedContentError("");
+    setManagedContentLoading(tab !== "videos" && (canEdit || canPublish));
+    setActiveTab(tab);
+    setSelectedCategory("All");
+  };
 
   useEffect(() => {
     if (scope !== "content" || (!canUploadMedia && !canEdit)) return;
@@ -182,24 +208,22 @@ export function ContentManagement({
     fetch("/api/admin/categories?type=video", { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
         const result = await response.json().catch(() => ({}));
-        if (!response.ok) return;
+        if (!response.ok) throw new Error(result.message || "Categories could not be loaded.");
         const list = Array.isArray(result?.data?.videos)
           ? result.data.videos
           : Array.isArray(result?.data)
           ? result.data
           : [];
-        if (list.length > 0) {
-          const names = list
-            .map((c: Record<string, unknown>) => String(c.name || "").trim())
-            .filter((n: string) => n.length > 0 && n.toLowerCase() !== "all" && n.toLowerCase() !== "all stories");
-          if (names.length > 0) {
-            setCategories(Array.from(new Set(names)));
-          }
-        }
+        const names = list
+          .map((c: Record<string, unknown>) => String(c.name || "").trim())
+          .filter((name: string) => name.length > 0 && name.toLowerCase() !== "all" && name.toLowerCase() !== "all stories");
+        setCategories(Array.from(new Set(names)));
       })
-      .catch(() => {});
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) setManagedContentError(error instanceof Error ? error.message : "Categories could not be loaded.");
+      });
     return () => controller.abort();
-  }, [setCategories]);
+  }, []);
 
   const refreshVideos = async () => {
     setIsRefreshingVideos(true);
@@ -224,13 +248,49 @@ export function ContentManagement({
     fetch("/api/admin/reviews", { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
         const result = await response.json().catch(() => ({}));
-        if (!response.ok) return;
+        if (!response.ok) throw new Error(result.message || "Patient stories could not be loaded.");
         const items = Array.isArray(result?.data?.items) ? result.data.items : [];
-        setReviews(items.map(mapSavedReview));
+        queueMicrotask(() => {
+          if (!controller.signal.aborted) setReviews(items.map(mapSavedReview));
+        });
       })
-      .catch(() => {});
+      .catch((error: unknown) => {
+        queueMicrotask(() => {
+          if (!controller.signal.aborted) setManagedContentError(error instanceof Error ? error.message : "Patient stories could not be loaded.");
+        });
+      })
+      .finally(() => {
+        queueMicrotask(() => {
+          if (!controller.signal.aborted) setManagedContentLoading(false);
+        });
+      });
     return () => controller.abort();
   }, [activeTab, canEdit, canPublish, setReviews]);
+
+  useEffect(() => {
+    if (activeTab !== "banners" || (!canEdit && !canPublish)) return;
+    const controller = new AbortController();
+    fetch("/api/admin/content?type=banner&limit=100", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.message || "Home banners could not be loaded.");
+        const items = Array.isArray(result?.data?.items) ? result.data.items : [];
+        queueMicrotask(() => {
+          if (!controller.signal.aborted) setBanners(items.map(mapSavedBanner));
+        });
+      })
+      .catch((error: unknown) => {
+        queueMicrotask(() => {
+          if (!controller.signal.aborted) setManagedContentError(error instanceof Error ? error.message : "Home banners could not be loaded.");
+        });
+      })
+      .finally(() => {
+        queueMicrotask(() => {
+          if (!controller.signal.aborted) setManagedContentLoading(false);
+        });
+      });
+    return () => controller.abort();
+  }, [activeTab, canEdit, canPublish]);
 
   const toggleReviewModerationStatus = async (review: ReviewContentItem) => {
     const nextStatus = review.status === "Published" ? "rejected" : "active";
@@ -239,6 +299,11 @@ export function ContentManagement({
       onToast("This review does not have a valid server ID and cannot be moderated.");
       return;
     }
+    if (nextStatus === "active" && !review.consentVerified) {
+      onToast("Confirm documented patient consent in Edit before publishing this story.");
+      return;
+    }
+    let updatedReviewFromApi: Record<string, unknown> | null = null;
     try {
       const response = await fetch("/api/admin/reviews", {
         method: "PATCH",
@@ -247,15 +312,17 @@ export function ContentManagement({
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result?.message || "Review moderation failed.");
+      updatedReviewFromApi = result?.data && typeof result.data === "object" ? result.data as Record<string, unknown> : null;
     } catch (error) {
       onToast(error instanceof Error ? error.message : "Review moderation failed.");
       return;
     }
-    setReviews((prev) =>
-      prev.map((r) =>
-        r.id === review.id ? { ...r, status: nextStatus === "active" ? "Published" : "Inactive" } : r
-      )
-    );
+    if (updatedReviewFromApi) {
+      const mappedReview = mapSavedReview(updatedReviewFromApi);
+      setReviews((prev) => prev.map((item) => item.id === review.id ? mappedReview : item));
+    } else {
+      setReviews((prev) => prev.map((item) => item.id === review.id ? { ...item, status: nextStatus === "active" ? "Published" : "Inactive" } : item));
+    }
   };
 
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
@@ -275,7 +342,7 @@ export function ContentManagement({
 
   // Form State for Create / Edit
   const [formTitle, setFormTitle] = useState("");
-  const [formCategory, setFormCategory] = useState(categories[0] || "Hair Fall");
+  const [formCategory, setFormCategory] = useState(categories[0] || "");
   const [formMediaUrl, setFormMediaUrl] = useState("");
   const [formMediaAssets, setFormMediaAssets] = useState<{
     originalUrl: string;
@@ -297,6 +364,28 @@ export function ContentManagement({
   const [formPlacement, setFormPlacement] = useState<"Home hero" | "Home card">("Home hero");
   const [reviewConsentConfirmed, setReviewConsentConfirmed] = useState(false);
 
+  const refreshManagedContent = async () => {
+    if (activeTab === "videos") return refreshVideos();
+    setIsRefreshingManagedContent(true);
+    setManagedContentError("");
+    try {
+      const isReviewTab = activeTab === "reviews";
+      const response = await fetch(isReviewTab ? "/api/admin/reviews?limit=100" : "/api/admin/content?type=banner&limit=100", { cache: "no-store" });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.message || "Content could not be refreshed.");
+      const items = Array.isArray(result?.data?.items) ? result.data.items : [];
+      if (isReviewTab) setReviews(items.map(mapSavedReview));
+      else setBanners(items.map(mapSavedBanner));
+      onToast(isReviewTab ? "Patient stories refreshed from the API." : "Home banners refreshed from the API.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Content could not be refreshed.";
+      setManagedContentError(message);
+      onToast(message);
+    } finally {
+      setIsRefreshingManagedContent(false);
+    }
+  };
+
   // Filtering Logic
   const filteredVideos = useMemo(() => {
     return videos.filter((v) => {
@@ -309,6 +398,9 @@ export function ContentManagement({
     });
   }, [videos, query, selectedCategory, statusFilter]);
   const videoCategories = useMemo(() => Array.from(new Set([...categories, ...videos.map((video) => video.category)])).sort(), [categories, videos]);
+  const reviewCategories = useMemo(() => Array.from(new Set([...categories, ...reviews.map((review) => review.category).filter(Boolean)])).sort(), [categories, reviews]);
+  const bannerCategories = useMemo(() => Array.from(new Set(banners.map((banner) => banner.category).filter(Boolean))).sort(), [banners]);
+  const categoryOptions = activeTab === "videos" ? videoCategories : activeTab === "reviews" ? reviewCategories : bannerCategories;
 
   const filteredReviews = useMemo(() => {
     return reviews.filter((r) => {
@@ -422,7 +514,7 @@ export function ContentManagement({
     setEditingItemId(null);
     setOriginalItemStatus(null);
     setFormTitle("");
-    setFormCategory(categories[0] || "Hair Fall");
+    setFormCategory(categories[0] || "");
     setFormMediaUrl("");
     setFormMediaAssets(undefined);
     setFormVideoUrl("");
@@ -540,11 +632,7 @@ export function ContentManagement({
       return;
     }
 
-    const defaultImage =
-      formMediaUrl.trim() ||
-      (activeTab === "reviews"
-        ? "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=300"
-        : "https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=600");
+    const defaultImage = formMediaUrl.trim();
     const savedStatus = !canPublish && formStatus === "Published" ? "Draft" : formStatus;
 
     if (activeTab === "videos") {
@@ -627,91 +715,143 @@ export function ContentManagement({
         return;
       }
     } else if (activeTab === "reviews") {
-      if (editingItemId) {
-        setReviews((prev) =>
-          prev.map((r) =>
-            r.id === editingItemId
-              ? {
-                ...r,
-                patientName: formTitle.trim(),
-                category: formCategory,
-                avatar: defaultImage,
-                mediaAssets: formMediaAssets,
-                comment: formSecondaryText.trim(),
-                treatment: formDetailTag.trim() || "Hair Recovery Regimen",
-                rating: formRating,
-                status: savedStatus,
-                updated: "Just now",
-              }
-              : r
-          )
-        );
-        onToast("Review updated successfully.");
-      } else {
-        const newReview: ReviewContentItem = {
-          id: `REV-${Date.now().toString().slice(-4)}`,
-          patientName: formTitle.trim(),
+      setSavingVideo(true);
+      try {
+        const status = savedStatus === "Published" ? "active" : savedStatus === "Review" ? "pending" : savedStatus === "Inactive" ? "rejected" : "draft";
+        const payload: Record<string, unknown> = {
+          name: formTitle.trim(),
           rating: formRating,
-          category: formCategory,
-          treatment: formDetailTag.trim() || "Hair Regrowth Protocol",
-          duration: "Used for 3 months",
-          comment: formSecondaryText.trim() || "Visible hair thickness improvements.",
+          category: formCategory.trim() || "General",
+          message: formSecondaryText.trim(),
           avatar: defaultImage,
-          mediaAssets: formMediaAssets,
-          verified: true,
-          status: savedStatus,
-          updated: "Just now",
+          treatment: formDetailTag.trim(),
+          review_type: "doctor",
+          page: "home",
+          ...(reviewConsentConfirmed ? { patient_consent_confirmed: true } : {}),
         };
-        setReviews([newReview, ...reviews]);
-        onToast("Patient review added successfully.");
+        let savedReview: Record<string, unknown>;
+        if (editingItemId) {
+          const response = await fetch(`/api/admin/reviews/${encodeURIComponent(editingItemId)}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+            cache: "no-store",
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok || !result?.data) throw new Error(result.message || "Patient story could not be updated.");
+          savedReview = result.data as Record<string, unknown>;
+          if (savedReview.status !== status) {
+            const statusResponse = await fetch("/api/admin/reviews", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: Number(editingItemId), status }),
+              cache: "no-store",
+            });
+            const statusResult = await statusResponse.json().catch(() => ({}));
+            if (!statusResponse.ok || !statusResult?.data) throw new Error(statusResult.message || "Patient story was saved, but its status could not be updated.");
+            savedReview = statusResult.data as Record<string, unknown>;
+          }
+        } else {
+          const response = await fetch("/api/admin/reviews", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...payload, status }),
+            cache: "no-store",
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok || !result?.data) throw new Error(result.message || "Patient story could not be saved.");
+          savedReview = result.data as Record<string, unknown>;
+        }
+        const mappedReview = mapSavedReview(savedReview);
+        setReviews((current) => editingItemId
+          ? current.map((review) => review.id === editingItemId ? mappedReview : review)
+          : [mappedReview, ...current]);
+        setIsCreateModalOpen(false);
+        onAudit(savedReview.status === "active" ? "published patient story" : "saved patient story draft", `review:${mappedReview.id}`);
+        onToast(savedReview.status === "active" ? "Patient story published." : "Patient story saved to the review queue.");
+      } catch (error) {
+        onToast(error instanceof Error ? error.message : "Patient story could not be saved.");
+      } finally {
+        setSavingVideo(false);
       }
+      return;
     } else {
-      if (editingItemId) {
-        setBanners((prev) =>
-          prev.map((b) =>
-            b.id === editingItemId
-              ? {
-                ...b,
-                title: formTitle.trim(),
-                subtitle: formSecondaryText.trim(),
-                category: formCategory,
-                imageUrl: defaultImage,
-                mediaAssets: formMediaAssets,
-                ctaText: formDetailTag.trim() || "Learn More",
-                  targetRoute: formTargetRoute.trim(),
-                  destination: destinationFromRoute(formTargetRoute) ?? undefined,
-                  featuredOfferCode: formOfferCode || undefined,
-                  startsAt: formStartsAt || undefined,
-                  endsAt: formEndsAt || undefined,
-                  placement: formPlacement,
-                status: savedStatus,
-                updated: "Just now",
-              }
-              : b
-          )
-        );
-        onToast("Banner updated successfully.");
-      } else {
-        const newBanner: BannerContentItem = {
-          id: `BAN-${Date.now().toString().slice(-4)}`,
+      setSavingVideo(true);
+      try {
+        const status = savedStatus === "Published" ? "published" : savedStatus === "Review" ? "review" : savedStatus === "Inactive" ? "hidden" : "draft";
+        const payload = {
+          type: "banner",
           title: formTitle.trim(),
           subtitle: formSecondaryText.trim(),
-          category: formCategory,
           imageUrl: defaultImage,
-          mediaAssets: formMediaAssets,
-          ctaText: formDetailTag.trim() || "Explore Now",
-          targetRoute: formTargetRoute.trim(),
-          destination: destinationFromRoute(formTargetRoute) ?? undefined,
-          featuredOfferCode: formOfferCode || undefined,
-          startsAt: formStartsAt || undefined,
-          endsAt: formEndsAt || undefined,
-          placement: formPlacement,
-          status: savedStatus,
-          updated: "Just now",
+          actionUrl: formTargetRoute.trim(),
+          placement: "home",
+          sortOrder: 0,
+          status,
+          metadata: {
+            category: formCategory.trim(),
+            ctaText: formDetailTag.trim(),
+            bannerPlacement: formPlacement,
+            featuredOfferCode: formOfferCode || "",
+            startsAt: formStartsAt,
+            endsAt: formEndsAt,
+            mediaAssets: formMediaAssets || null,
+          },
         };
-        setBanners([newBanner, ...banners]);
-        onToast("Banner added successfully.");
+        let savedBanner: Record<string, unknown>;
+        if (editingItemId) {
+          const response = await fetch(`/api/admin/content/${encodeURIComponent(editingItemId)}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              title: payload.title,
+              subtitle: payload.subtitle,
+              imageUrl: payload.imageUrl,
+              actionUrl: payload.actionUrl,
+              placement: payload.placement,
+              sortOrder: payload.sortOrder,
+              metadata: payload.metadata,
+            }),
+            cache: "no-store",
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok || !result?.data) throw new Error(result.message || "Banner could not be updated.");
+          savedBanner = result.data as Record<string, unknown>;
+          if (savedBanner.status !== status) {
+            const statusResponse = await fetch(`/api/admin/content/${encodeURIComponent(editingItemId)}/status`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ status }),
+              cache: "no-store",
+            });
+            const statusResult = await statusResponse.json().catch(() => ({}));
+            if (!statusResponse.ok || !statusResult?.data) throw new Error(statusResult.message || "Banner was saved, but its status could not be updated.");
+            savedBanner = statusResult.data as Record<string, unknown>;
+          }
+        } else {
+          const response = await fetch("/api/admin/content", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+            cache: "no-store",
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok || !result?.data) throw new Error(result.message || "Banner could not be saved.");
+          savedBanner = result.data as Record<string, unknown>;
+        }
+        const mappedBanner = mapSavedBanner(savedBanner);
+        setBanners((current) => editingItemId
+          ? current.map((banner) => banner.id === editingItemId ? mappedBanner : banner)
+          : [mappedBanner, ...current]);
+        setIsCreateModalOpen(false);
+        onAudit(savedBanner.status === "published" ? "published app banner" : "saved app banner draft", mappedBanner.title);
+        onToast(savedBanner.status === "published" ? "Banner published to the app." : "Banner saved to the content library.");
+      } catch (error) {
+        onToast(error instanceof Error ? error.message : "Banner could not be saved.");
+      } finally {
+        setSavingVideo(false);
       }
+      return;
     }
 
     setIsCreateModalOpen(false);
@@ -776,14 +916,44 @@ export function ContentManagement({
       return;
     }
     if (kind === "reviews") {
-      setReviews((prev) => prev.filter((item) => item.id !== id));
-      onToast("Review removed from library.");
+      setIsDeletingItem(true);
+      try {
+        const response = await fetch(`/api/admin/reviews/${encodeURIComponent(id)}`, {
+          method: "DELETE",
+          cache: "no-store",
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.message || "Patient story could not be deleted.");
+        setReviews((prev) => prev.filter((item) => item.id !== id));
+        onAudit("deleted patient story from database", `review:${id}`);
+        onToast("Patient story deleted from the database.");
+        setDeleteTarget(null);
+      } catch (error) {
+        onToast(error instanceof Error ? error.message : "Patient story could not be deleted.");
+      } finally {
+        setIsDeletingItem(false);
+      }
+      return;
     } else {
-      setBanners((prev) => prev.filter((item) => item.id !== id));
-      onToast("Banner removed from library.");
+      setIsDeletingItem(true);
+      try {
+        const response = await fetch(`/api/admin/content/${encodeURIComponent(id)}`, {
+          method: "DELETE",
+          cache: "no-store",
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.message || "Banner could not be deleted.");
+        setBanners((prev) => prev.filter((item) => item.id !== id));
+        onAudit("deleted app banner from database", title);
+        onToast("Banner deleted from the database.");
+        setDeleteTarget(null);
+      } catch (error) {
+        onToast(error instanceof Error ? error.message : "Banner could not be deleted.");
+      } finally {
+        setIsDeletingItem(false);
+      }
+      return;
     }
-    onAudit("removed app content item", title);
-    setDeleteTarget(null);
   };
 
   return (
@@ -803,6 +973,17 @@ export function ContentManagement({
                 title="Refresh video list from database"
               >
                 <span>{isRefreshingVideos ? "Syncing…" : "↻ Refresh"}</span>
+              </button>
+            )}
+            {activeTab !== "videos" && (
+              <button
+                type="button"
+                className="button button-secondary text-xs flex items-center gap-1.5"
+                onClick={() => void refreshManagedContent()}
+                disabled={isRefreshingManagedContent || managedContentLoading}
+                title="Refresh saved app content from the API"
+              >
+                <span>{isRefreshingManagedContent || managedContentLoading ? "Syncing…" : "↻ Refresh"}</span>
               </button>
             )}
             <button
@@ -834,8 +1015,11 @@ export function ContentManagement({
         <span>This workspace is for public Dr. Hair app media and approved stories. Keep private patient files in Patients → Documents or Hair tests & reports, and confirm a patient release before publishing a testimonial.</span>
       </div>
       {scope === "content" && videoLoadError && <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900" role="status">Saved videos could not refresh from the API: {videoLoadError}</div>}
+      {managedContentError && <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900" role="alert"><span>Saved {activeTab === "reviews" ? "patient stories" : "app content"} could not load: {managedContentError}</span><button type="button" className="button button-secondary button-small" onClick={() => void refreshManagedContent()} disabled={isRefreshingManagedContent}>Try again</button></div>}
+      {managedContentLoading && activeTab !== "videos" && <div className="mb-4 rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-500" role="status">Loading saved {activeTab === "reviews" ? "patient stories" : "home banners"}…</div>}
 
       {embedded && <div className="mb-4 flex flex-wrap justify-end gap-2">
+        {activeTab !== "videos" && <button className="button button-secondary button-small" onClick={() => void refreshManagedContent()} disabled={isRefreshingManagedContent || managedContentLoading}>↻ Refresh</button>}
         {canEdit && <button className="button button-secondary button-small" onClick={() => setIsCategoryModalOpen(true)}><FolderPlus size={13} />Add category</button>}
         {(canEdit || canUploadMedia) && <button className="button button-primary button-small" onClick={openCreateModal}><Plus size={13} />{activeTab === "videos" ? "Add YouTube video" : activeTab === "reviews" ? "Add patient story" : "Create banner"}</button>}
       </div>}
@@ -849,8 +1033,7 @@ export function ContentManagement({
               : "text-slate-600 hover:text-slate-900"
               }`}
             onClick={() => {
-              setActiveTab("videos");
-              setSelectedCategory("All");
+              selectContentTab("videos");
             }}
           >
             <Video size={14} className={activeTab === "videos" ? "text-teal-600" : ""} />
@@ -863,8 +1046,7 @@ export function ContentManagement({
               : "text-slate-600 hover:text-slate-900"
               }`}
             onClick={() => {
-              setActiveTab("reviews");
-              setSelectedCategory("All");
+              selectContentTab("reviews");
             }}
           >
             <Star size={14} className={activeTab === "reviews" ? "text-amber-500 fill-amber-500" : ""} />
@@ -877,8 +1059,7 @@ export function ContentManagement({
               : "text-slate-600 hover:text-slate-900"
               }`}
             onClick={() => {
-              setActiveTab("banners");
-              setSelectedCategory("All");
+              selectContentTab("banners");
             }}
           >
             <ImageIcon size={14} className={activeTab === "banners" ? "text-[#0D9488]" : ""} />
@@ -919,7 +1100,7 @@ export function ContentManagement({
           >
             All
           </button>
-          {(activeTab === "videos" ? videoCategories : categories).map((cat) => (
+          {categoryOptions.map((cat) => (
             <button
               key={cat}
               className={`px-2.5 py-1 rounded-full font-medium transition-colors whitespace-nowrap ${selectedCategory === cat
@@ -1154,10 +1335,10 @@ export function ContentManagement({
                     </td>
                   </tr>
                 ))}
-                {filteredReviews.length === 0 && (
+                {filteredVideos.length === 0 && (
                   <tr>
                     <td colSpan={6} className="py-8 text-center text-slate-400 text-xs">
-                      {reviews.length === 0 ? "No patient reviews submitted yet." : "No patient reviews match the search or category filters."}
+                      No YouTube videos match the search or category filters.
                     </td>
                   </tr>
                 )}
@@ -1187,7 +1368,7 @@ export function ContentManagement({
                           {rev.patientName}
                           {rev.verified && <CheckCircle2 size={12} className="text-teal-600 fill-teal-100" />}
                         </div>
-                        <span className="text-[10px] text-slate-400">{rev.duration}</span>
+                        <span className="text-[10px] text-slate-400">{rev.duration || "Duration not recorded"}</span>
                       </div>
                     </div>
                     <StatusPill status={rev.status} />
@@ -1208,7 +1389,7 @@ export function ContentManagement({
                   {/* Treatment Category Badge */}
                   <div className="mb-2">
                     <span className="px-2 py-0.5 bg-[#F0F7FF] text-[#1A365D] border border-[#D6E0FC] rounded text-[10px] font-semibold">
-                      {rev.category} · {rev.treatment}
+                      {rev.category}{rev.treatment ? ` · ${rev.treatment}` : " · Treatment not specified"}
                     </span>
                   </div>
 
@@ -1228,14 +1409,18 @@ export function ContentManagement({
                       <CheckCircle2 size={13} />
                     </button>
                     <button
+                      type="button"
                       onClick={() => openEditModal(rev)}
+                      disabled={!canEdit || (!canPublish && rev.status === "Published")}
                       className="p-1.5 text-slate-500 hover:text-teal-700 rounded hover:bg-slate-100"
                       title="Edit review"
                     >
                       <Pencil size={13} />
                     </button>
                     <button
+                      type="button"
                       onClick={() => handleDeleteItem(rev.id)}
+                      disabled={!canEdit || (!canPublish && rev.status === "Published")}
                       className="p-1.5 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50"
                       title="Delete review"
                     >
@@ -1272,7 +1457,7 @@ export function ContentManagement({
                         <Avatar initials={r.patientName.split(" ").map((n) => n[0]).join("")} />
                         <div>
                           <strong className="text-xs text-slate-800 block">{r.patientName}</strong>
-                          <span className="text-[10px] text-slate-400">{r.duration}</span>
+                          <span className="text-[10px] text-slate-400">{r.duration || "Duration not recorded"}</span>
                         </div>
                       </div>
                     </td>
@@ -1284,7 +1469,7 @@ export function ContentManagement({
                     </td>
                     <td>
                       <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs">{r.category}</span>
-                      <small className="block text-[10px] text-slate-400 mt-0.5">{r.treatment}</small>
+                      <small className="block text-[10px] text-slate-400 mt-0.5">{r.treatment || "Treatment not specified"}</small>
                     </td>
                     <td>
                       <p className="text-xs text-slate-600 max-w-sm truncate m-0">“{r.comment}”</p>
@@ -1301,8 +1486,8 @@ export function ContentManagement({
                         >
                           <CheckCircle2 size={14} />
                         </button>
-                        <button onClick={() => openEditModal(r)} className="row-action" title="Edit"><Pencil size={14} /></button>
-                        <button onClick={() => handleDeleteItem(r.id)} className="row-action hover:text-rose-600" title="Delete"><Trash2 size={14} /></button>
+                        <button onClick={() => openEditModal(r)} disabled={!canEdit || (!canPublish && r.status === "Published")} className="row-action disabled:opacity-40" title="Edit"><Pencil size={14} /></button>
+                        <button onClick={() => handleDeleteItem(r.id)} disabled={!canEdit || (!canPublish && r.status === "Published")} className="row-action hover:text-rose-600 disabled:opacity-40" title="Delete"><Trash2 size={14} /></button>
                       </div>
                     </td>
                   </tr>
@@ -1352,6 +1537,7 @@ export function ContentManagement({
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => openEditModal(banner)}
+                    disabled={!canEdit || (!canPublish && banner.status === "Published")}
                     className="p-1.5 text-slate-500 hover:text-teal-700 rounded hover:bg-slate-100"
                     title="Edit banner"
                   >
@@ -1359,6 +1545,7 @@ export function ContentManagement({
                   </button>
                   <button
                     onClick={() => handleDeleteItem(banner.id)}
+                    disabled={!canEdit || (!canPublish && banner.status === "Published")}
                     className="p-1.5 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50"
                     title="Delete banner"
                   >
@@ -1477,7 +1664,8 @@ export function ContentManagement({
                   value={formCategory}
                   onChange={(e) => setFormCategory(e.target.value)}
                 >
-                  {categories.map((cat) => (
+                  <option value="">No category selected</option>
+                  {categoryOptions.map((cat) => (
                     <option key={cat} value={cat}>
                       {cat}
                     </option>
@@ -1495,6 +1683,7 @@ export function ContentManagement({
                   <option value="Published" disabled={!canPublish}>Published{!canPublish ? " · Doctor only" : ""}</option>
                   <option value="Draft">Draft</option>
                   {activeTab !== "videos" && <option value="Review">In Review</option>}
+                  {activeTab !== "videos" && <option value="Inactive">Inactive</option>}
                 </select>
               </div>
             </div>
@@ -1676,7 +1865,7 @@ export function ContentManagement({
                     onChange={(e) => setFormSecondaryText(e.target.value)}
                   />
                 </div>
-                {formStatus === "Published" && <label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[11px] leading-5 text-amber-900"><input type="checkbox" checked={reviewConsentConfirmed} onChange={(event) => setReviewConsentConfirmed(event.target.checked)} className="mt-1" /><span>I confirm the patient has approved publishing this testimonial and its identifying details.</span></label>}
+                {(formStatus === "Published" || originalItemStatus === "Published") && <label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[11px] leading-5 text-amber-900"><input type="checkbox" checked={reviewConsentConfirmed} onChange={(event) => setReviewConsentConfirmed(event.target.checked)} className="mt-1" /><span>I confirm documented patient consent covers publishing this testimonial and its identifying details.</span></label>}
               </div>
             )}
 

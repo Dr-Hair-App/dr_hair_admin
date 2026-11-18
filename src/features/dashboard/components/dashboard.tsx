@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { StatusPill } from "../../shared/components/ui";
+import { Skeleton, StatusPill } from "../../shared/components/ui";
 import type { AdminRecord, AuditEventRecord, PageKey, Role } from "../../shared/types";
 import type { BookingRecord } from "../../shared/types";
 
@@ -782,9 +782,22 @@ function RegisteredPatients({ patients, totalCount, loadState, onOpenPatient }: 
       </div>
 
       {loadState === "loading" ? (
-        <div className="flex items-center justify-center p-12 text-slate-500 text-xs">
-          <div className="animate-spin rounded-full h-5 w-5 border-2 border-teal-600 border-t-transparent mr-2.5"></div>
-          Loading registered patients registry…
+        <div className="p-4 space-y-3" aria-hidden="true">
+          {Array.from({ length: 5 }).map((_, idx) => (
+            <div key={idx} className="flex items-center justify-between gap-4 py-2.5 border-b border-slate-50">
+              <div className="flex items-center gap-3">
+                <Skeleton variant="circular" className="h-9 w-9 shrink-0" />
+                <div className="space-y-1">
+                  <Skeleton variant="text" className="h-3.5 w-32" />
+                  <Skeleton variant="text" className="h-2.5 w-20" />
+                </div>
+              </div>
+              <Skeleton variant="text" className="h-3.5 w-40" />
+              <Skeleton variant="text" className="h-3.5 w-24" />
+              <Skeleton variant="text" className="h-3.5 w-20" />
+              <Skeleton variant="rectangular" className="h-8 w-24 rounded-lg" />
+            </div>
+          ))}
         </div>
       ) : loadState === "error" ? (
         <div className="p-8 text-center text-xs text-rose-600 bg-rose-50/50 m-4 rounded-xl border border-rose-100">
@@ -898,7 +911,7 @@ function AppointmentDetailsDialog({ booking, patient, onClose, onOpenPatient, on
   const [isClosing, setIsClosing] = useState(false);
   const closingRef = useRef(false);
 
-  const requestClose = () => {
+  const requestClose = useCallback(() => {
     if (closingRef.current) return;
     closingRef.current = true;
     setIsClosing(true);
@@ -910,7 +923,7 @@ function AppointmentDetailsDialog({ booking, patient, onClose, onOpenPatient, on
         onClose();
       }, 160);
     }
-  };
+  }, [onClose]);
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -918,7 +931,7 @@ function AppointmentDetailsDialog({ booking, patient, onClose, onOpenPatient, on
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, []);
+  }, [requestClose]);
 
   const appointmentDateValue = appointmentDate(booking);
   const action = nextAppointmentAction(booking);

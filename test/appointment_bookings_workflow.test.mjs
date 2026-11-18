@@ -8,7 +8,6 @@ describe('3. In-Clinic Appointment Bookings Workflow (/api/admin/appointments/*)
   let createdAppointmentId = null;
   // 11:00 AM IST on Wednesday Nov 25 2026 is 05:30:00 UTC
   const testStartsAt = '2026-11-25T05:30:00.000Z';
-  const testDate = '2026-11-25';
 
   it('GET /api/admin/appointments rejects unauthenticated requests with 401', async () => {
     const res = await fetch(`${BASE_URL}/api/admin/appointments`);

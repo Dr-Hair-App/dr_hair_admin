@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { ADMIN_SESSION_COOKIE, fetchBackend, noStoreJson, readJson } from "../../../_lib/backend";
+import { forwardAdminMediaUpload } from "./forward-media-upload.js";
 
 export async function POST(request: Request) {
   const authHeader = request.headers.get("authorization") || "";
@@ -13,21 +14,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    const purpose = request.headers.get("x-media-purpose") || "product";
     if (!request.body) return noStoreJson({ message: "Attach one or more image files." }, 400);
 
-    const upstream = await fetchBackend("/api/v1/media/upload", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
-        "Content-Type": contentType,
-        "X-Media-Purpose": purpose,
-      },
-      body: request.body,
-      cache: "no-store",
-      duplex: "half",
-    } as RequestInit & { duplex: "half" });
+    const upstream = await forwardAdminMediaUpload(request, token, fetchBackend);
 
     const body = await readJson(upstream);
     return noStoreJson(body, upstream.status);

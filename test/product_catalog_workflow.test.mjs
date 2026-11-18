@@ -128,6 +128,7 @@ describe('5. Product Catalog & Promotions Workflow (/api/admin/products/*, /api/
     const createBody = await createRes.json();
     assert.equal(createBody.status, 'success');
     createdCouponId = createBody.data?.id || createBody.data?.coupon?.id;
+    assert.ok(createdCouponId, 'Created coupon must have an ID');
 
     // List coupons - verify response structure harmonized by Backend Developer (#11)
     const listRes = await fetch(`${BASE_URL}/api/admin/coupons`, {
@@ -141,5 +142,36 @@ describe('5. Product Catalog & Promotions Workflow (/api/admin/products/*, /api/
     assert.ok(Array.isArray(couponsList), 'Coupons list must be an array');
     const found = couponsList.find((c) => c.code === couponCode);
     assert.ok(found, 'Created coupon should be found in coupons list');
+  });
+
+  it('POST /api/admin/products validates required fields (rejects empty name / invalid pricing)', async () => {
+    // Missing name
+    const resNoName = await fetch(`${BASE_URL}/api/admin/products`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ category: 'Hair Oil', price: 499 }),
+    });
+    assert.equal(resNoName.status, 400);
+
+    // Negative / zero price
+    const resBadPrice = await fetch(`${BASE_URL}/api/admin/products`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ name: 'Test Oil', category: 'Hair Oil', price: 0 }),
+    });
+    assert.equal(resBadPrice.status, 400);
+
+    // Missing supply plan shipping profile
+    const resNoShipping = await fetch(`${BASE_URL}/api/admin/products`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        name: 'Test Oil',
+        category: 'Hair Oil',
+        price: 499,
+        supply_plans: [{ id: 'p1', title: 'Single', price: 499, mrp: 599 }],
+      }),
+    });
+    assert.equal(resNoShipping.status, 400);
   });
 });

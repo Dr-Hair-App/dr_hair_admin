@@ -46,3 +46,29 @@ export async function PATCH(request: Request) {
     return noStoreJson({ message: "Failed to update review moderation status." }, 503);
   }
 }
+
+export async function POST(request: Request) {
+  const token = (await cookies()).get(ADMIN_SESSION_COOKIE)?.value;
+  if (!token) return noStoreJson({ message: "Sign in to add patient stories." }, 401);
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return noStoreJson({ message: "Send patient story details as JSON." }, 400);
+  }
+  try {
+    const upstream = await fetch(backendUrl("/api/v1/admin/reviews"), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      cache: "no-store",
+    });
+    return noStoreJson(await readJson(upstream), upstream.status);
+  } catch {
+    return noStoreJson({ message: "Reviews service is temporarily unavailable." }, 503);
+  }
+}

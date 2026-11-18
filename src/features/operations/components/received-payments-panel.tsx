@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Copy, CreditCard, DollarSign, RefreshCw, Search, ShoppingBag, Stethoscope } from "lucide-react";
 import { Modal, StatusPill } from "../../shared/components/ui";
 
@@ -35,50 +35,64 @@ interface PaymentSummary {
 
 export function ReceivedPaymentsPanel({ onToast }: { onToast: (message: string) => void }) {
   const [payments, setPayments] = useState<PaymentItem[]>([]);
-  const [summary, setSummary] = useState<PaymentSummary>({
-    total_collected: 0,
-    order_revenue: 0,
-    appointment_revenue: 0,
-    paid_count: 0,
-    total_transactions: 0,
-  });
+  const [summary, setSummary] = useState<PaymentSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [typeFilter, setTypeFilter] = useState<"all" | "order" | "appointment">("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedPayment, setSelectedPayment] = useState<PaymentItem | null>(null);
+  const requestControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setPage(1);
+      setDebouncedSearch(search.trim());
+    }, 300);
+    return () => window.clearTimeout(timeout);
+  }, [search]);
 
   const fetchPayments = useCallback(async () => {
+    requestControllerRef.current?.abort();
+    const controller = new AbortController();
+    requestControllerRef.current = controller;
     setLoading(true);
+    setLoadError("");
     try {
       const params = new URLSearchParams({
         page: String(page),
         limit: "25",
         type: typeFilter,
         status: statusFilter,
-        search,
+        search: debouncedSearch,
       });
-      const res = await fetch(`/api/admin/payments?${params.toString()}`);
-      if (res.ok) {
-        const json = await res.json();
-        const data = json.data || {};
-        setPayments(data.items || []);
-        if (data.summary) setSummary(data.summary);
-        if (data.pagination) setTotalPages(data.pagination.totalPages || 1);
-      } else {
-        onToast("Could not load payment records.");
+      const res = await fetch(`/api/admin/payments?${params.toString()}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof json.message === "string" ? json.message : "Could not load payment records.");
+      const data = json.data || {};
+      if (!Array.isArray(data.items) || !data.summary) throw new Error("Payment data is temporarily unavailable.");
+      if (controller.signal.aborted) return;
+      setPayments(data.items);
+      setSummary(data.summary);
+      if (data.pagination) setTotalPages(data.pagination.totalPages || 1);
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setLoadError(error instanceof Error ? error.message : "Network error loading received payments.");
       }
-    } catch {
-      onToast("Network error loading received payments.");
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
-  }, [onToast, page, search, statusFilter, typeFilter]);
+  }, [debouncedSearch, page, statusFilter, typeFilter]);
 
   useEffect(() => {
-    void Promise.resolve().then(fetchPayments);
+    void Promise.resolve().then(() => fetchPayments());
+    return () => requestControllerRef.current?.abort();
   }, [fetchPayments]);
 
   const copyToClipboard = (text: string, label: string) => {
@@ -117,9 +131,9 @@ export function ReceivedPaymentsPanel({ onToast }: { onToast: (message: string) 
           </div>
           <div className="mt-3">
             <div className="text-2xl font-black text-slate-800">
-              ₹{summary.total_collected.toLocaleString("en-IN")}
+              {summary ? `₹${summary.total_collected.toLocaleString("en-IN")}` : "—"}
             </div>
-            <div className="text-[11px] text-slate-400 mt-1">{summary.paid_count} successful payments</div>
+            <div className="text-[11px] text-slate-400 mt-1">{summary ? `${summary.paid_count} successful payments` : loading ? "Loading summary…" : "Summary unavailable"}</div>
           </div>
         </div>
 
@@ -132,7 +146,7 @@ export function ReceivedPaymentsPanel({ onToast }: { onToast: (message: string) 
           </div>
           <div className="mt-3">
             <div className="text-2xl font-black text-slate-800">
-              ₹{summary.order_revenue.toLocaleString("en-IN")}
+              {summary ? `₹${summary.order_revenue.toLocaleString("en-IN")}` : "—"}
             </div>
             <div className="text-[11px] text-slate-400 mt-1">E-commerce products & regimens</div>
           </div>
@@ -147,7 +161,7 @@ export function ReceivedPaymentsPanel({ onToast }: { onToast: (message: string) 
           </div>
           <div className="mt-3">
             <div className="text-2xl font-black text-slate-800">
-              ₹{summary.appointment_revenue.toLocaleString("en-IN")}
+              {summary ? `₹${summary.appointment_revenue.toLocaleString("en-IN")}` : "—"}
             </div>
             <div className="text-[11px] text-slate-400 mt-1">In-clinic OPD consultation fees</div>
           </div>
@@ -162,7 +176,7 @@ export function ReceivedPaymentsPanel({ onToast }: { onToast: (message: string) 
           </div>
           <div className="mt-3">
             <div className="text-2xl font-black text-slate-800">
-              {summary.total_transactions}
+              {summary ? summary.total_transactions : "—"}
             </div>
             <div className="text-[11px] text-slate-400 mt-1">Combined orders & appointments</div>
           </div>
@@ -213,7 +227,12 @@ export function ReceivedPaymentsPanel({ onToast }: { onToast: (message: string) 
           <input
             type="text"
             value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            onChange={(e) => {
+              requestControllerRef.current?.abort();
+              setLoading(true);
+              setLoadError("");
+              setSearch(e.target.value);
+            }}
             placeholder="Search by ID, customer, txn…"
             className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-xl bg-slate-50/50"
           />
@@ -240,7 +259,7 @@ export function ReceivedPaymentsPanel({ onToast }: { onToast: (message: string) 
               {payments.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-12 text-center text-slate-400">
-                    {loading ? "Loading transactions…" : "No payment records match the selected filters."}
+                    {loading ? "Loading transactions…" : loadError ? <span role="alert">{loadError}</span> : "No payment records match the selected filters."}
                   </td>
                 </tr>
               ) : (
@@ -355,6 +374,9 @@ export function ReceivedPaymentsPanel({ onToast }: { onToast: (message: string) 
           </div>
         )}
       </div>
+
+      {loadError && payments.length > 0 && <div className="px-4 py-3 border border-amber-200 bg-amber-50 text-xs text-amber-900 rounded-xl" role="alert">{loadError} Showing the last successfully loaded results.</div>}
+      {loadError && payments.length === 0 && <div className="text-center"><button type="button" className="button button-secondary button-small" onClick={() => void fetchPayments()}>Retry loading payments</button></div>}
 
       {/* 5. Detail Modal */}
       {selectedPayment && (
