@@ -46,6 +46,25 @@ const appBannerRoutes = [
   { path: "/clinic-appointment", label: "Clinic appointment" },
 ];
 
+type ContentApiResponse = {
+  message?: string;
+  data?: Record<string, unknown> & {
+    items?: Record<string, unknown>[];
+    videos?: unknown[];
+  };
+};
+
+async function readContentApiResponse(response: Response): Promise<ContentApiResponse> {
+  try {
+    const body: unknown = await response.json();
+    return body && typeof body === "object" && !Array.isArray(body)
+      ? body as ContentApiResponse
+      : {};
+  } catch {
+    return {};
+  }
+}
+
 function extractYouTubeId(url: string): string | null {
   if (!url || typeof url !== "string") return null;
   const trimmed = url.trim();
@@ -188,7 +207,7 @@ export function ContentManagement({
     const controller = new AbortController();
     fetch("/api/admin/media/videos", { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
-        const result = await response.json().catch(() => ({}));
+        const result = await readContentApiResponse(response);
         if (!response.ok) throw new Error(result.message || "Saved videos could not be loaded.");
         const items = Array.isArray(result?.data?.items) ? result.data.items : [];
         const mapped: VideoContentItem[] = items.map(mapSavedVideo);
@@ -207,7 +226,7 @@ export function ContentManagement({
     const controller = new AbortController();
     fetch("/api/admin/categories?type=video", { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
-        const result = await response.json().catch(() => ({}));
+        const result = await readContentApiResponse(response);
         if (!response.ok) throw new Error(result.message || "Categories could not be loaded.");
         const list = Array.isArray(result?.data?.videos)
           ? result.data.videos
@@ -215,7 +234,10 @@ export function ContentManagement({
           ? result.data
           : [];
         const names = list
-          .map((c: Record<string, unknown>) => String(c.name || "").trim())
+          .map((category) => {
+            if (!category || typeof category !== "object" || Array.isArray(category)) return "";
+            return String((category as Record<string, unknown>).name || "").trim();
+          })
           .filter((name: string) => name.length > 0 && name.toLowerCase() !== "all" && name.toLowerCase() !== "all stories");
         setCategories(Array.from(new Set(names)));
       })
@@ -229,7 +251,7 @@ export function ContentManagement({
     setIsRefreshingVideos(true);
     try {
       const response = await fetch("/api/admin/media/videos", { cache: "no-store" });
-      const result = await response.json().catch(() => ({}));
+      const result = await readContentApiResponse(response);
       if (!response.ok) throw new Error(result.message || "Failed to refresh videos.");
       const items = Array.isArray(result?.data?.items) ? result.data.items : [];
       setVideos(items.map(mapSavedVideo));
@@ -247,7 +269,7 @@ export function ContentManagement({
     const controller = new AbortController();
     fetch("/api/admin/reviews", { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
-        const result = await response.json().catch(() => ({}));
+        const result = await readContentApiResponse(response);
         if (!response.ok) throw new Error(result.message || "Patient stories could not be loaded.");
         const items = Array.isArray(result?.data?.items) ? result.data.items : [];
         queueMicrotask(() => {
@@ -272,7 +294,7 @@ export function ContentManagement({
     const controller = new AbortController();
     fetch("/api/admin/content?type=banner&limit=100", { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
-        const result = await response.json().catch(() => ({}));
+        const result = await readContentApiResponse(response);
         if (!response.ok) throw new Error(result.message || "Home banners could not be loaded.");
         const items = Array.isArray(result?.data?.items) ? result.data.items : [];
         queueMicrotask(() => {
@@ -310,7 +332,7 @@ export function ContentManagement({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: numericId, status: nextStatus }),
       });
-      const result = await response.json().catch(() => ({}));
+      const result = await readContentApiResponse(response);
       if (!response.ok) throw new Error(result?.message || "Review moderation failed.");
       updatedReviewFromApi = result?.data && typeof result.data === "object" ? result.data as Record<string, unknown> : null;
     } catch (error) {
@@ -371,7 +393,7 @@ export function ContentManagement({
     try {
       const isReviewTab = activeTab === "reviews";
       const response = await fetch(isReviewTab ? "/api/admin/reviews?limit=100" : "/api/admin/content?type=banner&limit=100", { cache: "no-store" });
-      const result = await response.json().catch(() => ({}));
+      const result = await readContentApiResponse(response);
       if (!response.ok) throw new Error(result.message || "Content could not be refreshed.");
       const items = Array.isArray(result?.data?.items) ? result.data.items : [];
       if (isReviewTab) setReviews(items.map(mapSavedReview));
@@ -443,7 +465,7 @@ export function ContentManagement({
           body,
           cache: "no-store",
         });
-        const result = await response.json().catch(() => ({}));
+        const result = await readContentApiResponse(response);
         const items = Array.isArray(result?.data?.items) ? result.data.items : [];
         if (!response.ok || items.length !== 1 + prepared.variants.length) {
           throw new Error(result?.message || "Image upload failed.");
@@ -494,7 +516,7 @@ export function ContentManagement({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: trimmed, type: "video" }),
       });
-      const result = await response.json().catch(() => ({}));
+      const result = await readContentApiResponse(response);
       if (!response.ok) throw new Error(result?.message || "Category could not be saved.");
     } catch (error) {
       onToast(error instanceof Error ? error.message : "Category could not be saved.");
@@ -652,7 +674,7 @@ export function ContentManagement({
             }),
             cache: "no-store",
           });
-          const result = await response.json().catch(() => ({}));
+          const result = await readContentApiResponse(response);
           if (!response.ok || !result?.data) throw new Error(result.message || "YouTube video could not be saved.");
           let savedVideo = result.data as Record<string, unknown>;
           if (savedStatus === "Published" && savedVideo.status !== "published") {
@@ -662,7 +684,7 @@ export function ContentManagement({
               body: JSON.stringify({ public_id: savedVideo.public_id, status: "published" }),
               cache: "no-store",
             });
-            const statusResult = await statusResponse.json().catch(() => ({}));
+            const statusResult = await readContentApiResponse(statusResponse);
             if (statusResponse.ok && statusResult?.data) {
               savedVideo = statusResult.data as Record<string, unknown>;
             }
@@ -700,7 +722,7 @@ export function ContentManagement({
             body: JSON.stringify(updatePayload),
             cache: "no-store",
           });
-          const result = await response.json().catch(() => ({}));
+          const result = await readContentApiResponse(response);
           if (!response.ok || !result?.data) throw new Error(result.message || "Failed to update video in database.");
           const updated = mapSavedVideo(result.data as Record<string, unknown>);
           setVideos((current) => current.map((v) => (v.id === editingItemId ? updated : v)));
@@ -737,7 +759,7 @@ export function ContentManagement({
             body: JSON.stringify(payload),
             cache: "no-store",
           });
-          const result = await response.json().catch(() => ({}));
+          const result = await readContentApiResponse(response);
           if (!response.ok || !result?.data) throw new Error(result.message || "Patient story could not be updated.");
           savedReview = result.data as Record<string, unknown>;
           if (savedReview.status !== status) {
@@ -747,7 +769,7 @@ export function ContentManagement({
               body: JSON.stringify({ id: Number(editingItemId), status }),
               cache: "no-store",
             });
-            const statusResult = await statusResponse.json().catch(() => ({}));
+            const statusResult = await readContentApiResponse(statusResponse);
             if (!statusResponse.ok || !statusResult?.data) throw new Error(statusResult.message || "Patient story was saved, but its status could not be updated.");
             savedReview = statusResult.data as Record<string, unknown>;
           }
@@ -758,7 +780,7 @@ export function ContentManagement({
             body: JSON.stringify({ ...payload, status }),
             cache: "no-store",
           });
-          const result = await response.json().catch(() => ({}));
+          const result = await readContentApiResponse(response);
           if (!response.ok || !result?.data) throw new Error(result.message || "Patient story could not be saved.");
           savedReview = result.data as Record<string, unknown>;
         }
@@ -814,7 +836,7 @@ export function ContentManagement({
             }),
             cache: "no-store",
           });
-          const result = await response.json().catch(() => ({}));
+          const result = await readContentApiResponse(response);
           if (!response.ok || !result?.data) throw new Error(result.message || "Banner could not be updated.");
           savedBanner = result.data as Record<string, unknown>;
           if (savedBanner.status !== status) {
@@ -824,7 +846,7 @@ export function ContentManagement({
               body: JSON.stringify({ status }),
               cache: "no-store",
             });
-            const statusResult = await statusResponse.json().catch(() => ({}));
+            const statusResult = await readContentApiResponse(statusResponse);
             if (!statusResponse.ok || !statusResult?.data) throw new Error(statusResult.message || "Banner was saved, but its status could not be updated.");
             savedBanner = statusResult.data as Record<string, unknown>;
           }
@@ -835,7 +857,7 @@ export function ContentManagement({
             body: JSON.stringify(payload),
             cache: "no-store",
           });
-          const result = await response.json().catch(() => ({}));
+          const result = await readContentApiResponse(response);
           if (!response.ok || !result?.data) throw new Error(result.message || "Banner could not be saved.");
           savedBanner = result.data as Record<string, unknown>;
         }
@@ -869,7 +891,7 @@ export function ContentManagement({
         body: JSON.stringify({ public_id: video.publicId, status: nextStatus }),
         cache: "no-store",
       });
-      const result = await response.json().catch(() => ({}));
+      const result = await readContentApiResponse(response);
       if (!response.ok || !result?.data) throw new Error(result.message || "Video status could not be updated.");
       const updated = mapSavedVideo(result.data as Record<string, unknown>);
       setVideos((current) => current.map((item) => item.id === video.id ? updated : item));
@@ -902,7 +924,7 @@ export function ContentManagement({
           method: "DELETE",
           cache: "no-store",
         });
-        const result = await response.json().catch(() => ({}));
+        const result = await readContentApiResponse(response);
         if (!response.ok) throw new Error(result.message || "Could not delete video from database.");
         setVideos((prev) => prev.filter((item) => item.id !== id && item.publicId !== publicId));
         onAudit("deleted video from database", title);
@@ -922,7 +944,7 @@ export function ContentManagement({
           method: "DELETE",
           cache: "no-store",
         });
-        const result = await response.json().catch(() => ({}));
+        const result = await readContentApiResponse(response);
         if (!response.ok) throw new Error(result.message || "Patient story could not be deleted.");
         setReviews((prev) => prev.filter((item) => item.id !== id));
         onAudit("deleted patient story from database", `review:${id}`);
@@ -941,7 +963,7 @@ export function ContentManagement({
           method: "DELETE",
           cache: "no-store",
         });
-        const result = await response.json().catch(() => ({}));
+        const result = await readContentApiResponse(response);
         if (!response.ok) throw new Error(result.message || "Banner could not be deleted.");
         setBanners((prev) => prev.filter((item) => item.id !== id));
         onAudit("deleted app banner from database", title);

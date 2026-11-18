@@ -19,7 +19,8 @@ async function forward(request: Request, { params }: RouteContext, method: "GET"
   }
 
   try {
-    const upstream = await fetchBackend(`/api/v1/admin/products/${encodeURIComponent(id)}/inventory`, {
+    const query = method === "GET" ? new URL(request.url).search : "";
+    const upstream = await fetchBackend(`/api/v1/admin/products/${encodeURIComponent(id)}/inventory${query}`, {
       method,
       headers: {
         Authorization: `Bearer ${token}`,

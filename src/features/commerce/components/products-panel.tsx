@@ -34,7 +34,6 @@ import {
 } from "lucide-react";
 import { Modal, StatusPill } from "../../shared/components/ui";
 import { FullSizeImageViewer, type ViewerImage } from "../../shared/components/full-size-image-viewer";
-import { useSessionState } from "../../shared/lib/use-session-state";
 import { formatCurrency } from "../lib/format";
 import { prepareSmartImage } from "../../shared/lib/smart-image-upload";
 import type {
@@ -84,6 +83,14 @@ type MediaUploadResponse = {
 function generateUniqueSku(prefix = "DRH"): string {
   const randomNum = Math.floor(1000 + Math.random() * 9000);
   return `${prefix}-${randomNum}`;
+}
+
+function createInventoryIdempotencyKey(): string {
+  const cryptoApi = globalThis.crypto;
+  if (typeof cryptoApi?.randomUUID === "function") return cryptoApi.randomUUID();
+  if (!cryptoApi?.getRandomValues) throw new Error("Secure inventory submission is unavailable in this browser.");
+  const bytes = cryptoApi.getRandomValues(new Uint8Array(16));
+  return `inv-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
 const newPlan = (defaults?: Partial<ProductSupplyPlan>): ProductSupplyPlan => ({
@@ -253,7 +260,6 @@ export function ProductsPanel({
   const [stockProduct, setStockProduct] = useState<ProductRecord | null>(null);
   const [deleteProduct, setDeleteProduct] = useState<ProductRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [movements, setMovements] = useSessionState<StockMovement[]>("drhair-commerce-stock-movements", []);
   const categoryOptions = useMemo(() => [...new Set(products.map((product) => product.category.trim()).filter(Boolean))].sort(), [products]);
   const rootCauseOptions = useMemo(() => [...new Set(products.flatMap((product) => product.rootCauses ?? []).map((item) => item.trim()).filter(Boolean))].sort(), [products]);
 
@@ -446,7 +452,7 @@ export function ProductsPanel({
     }
   };
 
-  const applyStockAdjustment = async (product: ProductRecord, delta: number, reason: string): Promise<boolean> => {
+  const applyStockAdjustment = async (product: ProductRecord, delta: number, reason: string, idempotencyKey: string): Promise<boolean> => {
     if (!Number.isSafeInteger(delta) || delta === 0 || !reason.trim()) {
       onToast("Choose a valid stock change and reason.");
       return false;
@@ -455,24 +461,15 @@ export function ProductsPanel({
       const response = await fetch(`/api/admin/products/${encodeURIComponent(product.id)}/inventory`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ delta, notes: reason.trim() }),
+        body: JSON.stringify({ delta, notes: reason.trim(), idempotency_key: idempotencyKey }),
       });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.message || "Inventory adjustment could not be saved.");
+      const body = await response.json().catch(() => null) as { message?: string; data?: { newStock?: unknown } } | null;
+      if (!response.ok) throw new Error(body?.message || "Inventory adjustment could not be saved.");
       const newStock = Number(body?.data?.newStock);
       if (!Number.isFinite(newStock) || newStock < 0) throw new Error("Inventory service returned an invalid stock balance.");
       onProductsChange((current) => current.map((item) =>
         item.id === product.id ? { ...item, stock: newStock, updated: "Just now" } : item
       ));
-      setMovements((current) => [{
-        id: `STK-${Date.now()}`,
-        productId: product.id,
-        variantId: "product",
-        variantTitle: "Product inventory",
-        quantityChange: delta,
-        reason: reason.trim(),
-        createdAt: new Date().toISOString(),
-      }, ...current]);
       onToast(`Inventory updated to ${newStock} units.`);
       onRefresh?.();
       return true;
@@ -825,7 +822,6 @@ export function ProductsPanel({
       {selectedDetail && (
         <ProductDetails
           product={selectedDetail}
-          movements={movements.filter((movement) => movement.productId === selectedDetail.id)}
           onClose={() => setDetailProduct(null)}
           onEdit={() => {
             setEditorProduct(selectedDetail);
@@ -843,8 +839,8 @@ export function ProductsPanel({
         <StockAdjustmentDialog
           product={selectedStock}
           onClose={() => setStockProduct(null)}
-          onSave={async (delta, reason) => {
-            const ok = await applyStockAdjustment(selectedStock, delta, reason);
+          onSave={async (delta, reason, idempotencyKey) => {
+            const ok = await applyStockAdjustment(selectedStock, delta, reason, idempotencyKey);
             if (ok) setStockProduct(null);
             return ok;
           }}
@@ -3189,20 +3185,58 @@ function ProductEditor({
 
 function ProductDetails({
   product,
-  movements,
   onClose,
   onEdit,
   onAdjustStock,
   onDelete,
 }: {
   product: ProductRecord;
-  movements: StockMovement[];
   onClose: () => void;
   onEdit: () => void;
   onAdjustStock: () => void;
   onDelete: () => void;
 }) {
   const plans = getPlans(product);
+  const [ledgerMovements, setLedgerMovements] = useState<StockMovement[]>([]);
+  const [ledgerLoading, setLedgerLoading] = useState(true);
+  const [ledgerError, setLedgerError] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void Promise.resolve().then(() => {
+      if (controller.signal.aborted) return;
+      setLedgerLoading(true);
+      setLedgerError("");
+      return fetch(`/api/admin/products/${encodeURIComponent(product.id)}/inventory?limit=5`, {
+        cache: "no-store",
+        signal: controller.signal,
+      }).then(async (response) => {
+        const value = await response.json().catch(() => null) as { message?: string; data?: { items?: unknown } } | null;
+        if (!response.ok) throw new Error(value?.message || "Inventory history could not be loaded.");
+        const items = value?.data?.items;
+        if (!Array.isArray(items)) throw new Error("Inventory history service returned an invalid response.");
+        if (controller.signal.aborted) return;
+        setLedgerMovements(items.map((item, index) => {
+          const row = item && typeof item === "object" ? item as Record<string, unknown> : {};
+          return {
+            id: String(row.id || `${product.id}-movement-${index}`),
+            productId: product.id,
+            variantId: "product",
+            variantTitle: "Product inventory",
+            quantityChange: Number(row.quantity ?? 0),
+            reason: String(row.notes || row.reference_type || "Inventory adjustment"),
+            createdAt: String(row.created_at || ""),
+          };
+        }));
+      }).catch((error: unknown) => {
+        if (!controller.signal.aborted) setLedgerError(error instanceof Error ? error.message : "Inventory history could not be loaded.");
+      }).finally(() => {
+        if (!controller.signal.aborted) setLedgerLoading(false);
+      });
+    });
+    return () => controller.abort();
+  }, [product.id, product.stock]);
+
   return (
     <Modal
       className="product-details-modal"
@@ -3324,9 +3358,11 @@ function ProductDetails({
       </section>
       <section className="product-detail-section">
         <h3>Recent inventory changes</h3>
-        {movements.length ? (
+        {ledgerLoading ? <p className="card-note">Loading inventory history…</p> : ledgerError ? (
+          <p className="card-note">{ledgerError}</p>
+        ) : ledgerMovements.length ? (
           <div className="stock-movement-list">
-            {movements.slice(0, 5).map((movement) => (
+            {ledgerMovements.slice(0, 5).map((movement) => (
               <div key={movement.id}>
                 <span>
                   <strong>{movement.variantTitle}</strong>
@@ -3342,7 +3378,7 @@ function ProductDetails({
             ))}
           </div>
         ) : (
-          <p className="card-note">No manual stock changes recorded in this preview.</p>
+          <p className="card-note">No inventory movements recorded yet.</p>
         )}
       </section>
       <section className="product-detail-section product-performance-detail">
@@ -3364,12 +3400,14 @@ function StockAdjustmentDialog({
 }: {
   product: ProductRecord;
   onClose: () => void;
-  onSave: (delta: number, reason: string) => Promise<boolean>;
+  onSave: (delta: number, reason: string, idempotencyKey: string) => Promise<boolean>;
 }) {
   const [quantity, setQuantity] = useState("1");
   const [direction, setDirection] = useState<"add" | "remove">("add");
   const [reason, setReason] = useState("Stock received");
   const [saving, setSaving] = useState(false);
+  const [submissionError, setSubmissionError] = useState("");
+  const idempotencyKeyRef = useRef<string | null>(null);
   const delta = (direction === "add" ? 1 : -1) * Math.abs(Math.floor(Number(quantity)) || 0);
 
   return (
@@ -3382,7 +3420,14 @@ function StockAdjustmentDialog({
       onClose={onClose}
       onSubmit={() => {
         setSaving(true);
-        void onSave(delta, reason).finally(() => setSaving(false));
+        try {
+          idempotencyKeyRef.current ??= createInventoryIdempotencyKey();
+          setSubmissionError("");
+          void onSave(delta, reason, idempotencyKeyRef.current).finally(() => setSaving(false));
+        } catch (error) {
+          setSubmissionError(error instanceof Error ? error.message : "Could not securely prepare this inventory request.");
+          setSaving(false);
+        }
       }}
     >
       <div className="form-grid-two">
@@ -3391,7 +3436,10 @@ function StockAdjustmentDialog({
           <select
             id="stock-direction"
             value={direction}
-            onChange={(event) => setDirection(event.target.value as "add" | "remove")}
+            onChange={(event) => {
+              idempotencyKeyRef.current = null;
+              setDirection(event.target.value as "add" | "remove");
+            }}
           >
             <option value="add">Receive stock</option>
             <option value="remove">Remove stock</option>
@@ -3405,12 +3453,18 @@ function StockAdjustmentDialog({
             min="1"
             step="1"
             value={quantity}
-            onChange={(event) => setQuantity(event.target.value)}
+            onChange={(event) => {
+              idempotencyKeyRef.current = null;
+              setQuantity(event.target.value);
+            }}
           />
         </div>
         <div className="field field-span">
           <label htmlFor="stock-reason">Reason</label>
-          <select id="stock-reason" value={reason} onChange={(event) => setReason(event.target.value)}>
+          <select id="stock-reason" value={reason} onChange={(event) => {
+            idempotencyKeyRef.current = null;
+            setReason(event.target.value);
+          }}>
             {["Stock received", "Damaged or expired", "Manual count correction", "Return restocked", "Other"].map(
               (item) => (
                 <option key={item}>{item}</option>
@@ -3419,6 +3473,7 @@ function StockAdjustmentDialog({
           </select>
         </div>
       </div>
+      {submissionError && <p className="text-xs text-rose-700" role="alert">{submissionError}</p>}
       <div className="stock-adjustment-preview">
         <Boxes size={15} />
         <span>

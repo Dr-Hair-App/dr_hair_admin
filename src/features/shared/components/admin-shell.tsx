@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  Bell, CalendarDays, ChevronLeft, Flag,
+  Bell, CalendarDays, Flag,
   Gauge, LayoutDashboard, LogOut, Package, PanelsTopLeft, Settings,
   ShieldCheck, ShoppingBag, UsersRound,
 } from "lucide-react";
@@ -38,7 +38,6 @@ interface AdminShellProps {
   showSearch?: boolean;
   headerTitle?: string;
   headerSubtitle?: string;
-  onHeaderBack?: () => void;
   previewAdminId?: string;
   adminOptions?: { id: string; name: string; role: string; status: string }[];
   children: React.ReactNode;
@@ -69,7 +68,6 @@ export function AdminShell({
   showSearch = true,
   headerTitle,
   headerSubtitle,
-  onHeaderBack,
   children,
   onRoleChange,
   onPageChange,
@@ -313,16 +311,6 @@ export function AdminShell({
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white p-0.5 shadow-sm ring-1 ring-teal-100 lg:hidden" aria-hidden="true">
                 <Image src="/logo-badge.png" alt="" width={36} height={36} priority className="h-9 w-9 rounded-full object-cover" />
               </span>
-              {onHeaderBack && (
-                <button
-                  type="button"
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-[#1A365D] border border-slate-200/80 shadow-2xs hover:bg-slate-50 transition-colors"
-                  onClick={onHeaderBack}
-                  aria-label="Go back"
-                >
-                  <ChevronLeft size={18} />
-                </button>
-              )}
               <div className="min-w-0">
                 <div className="flex items-center gap-2.5 flex-wrap">
                   <h1 className="text-lg font-bold leading-tight tracking-tight text-[#1A365D] sm:text-2xl">{activeTitle}</h1>
