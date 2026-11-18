@@ -79,7 +79,7 @@ export function HairTestsPage({
   const canUpload = permissions.includes("hair-tests.upload");
   const canSubmit = permissions.includes("hair-tests.submit");
   const canApprove = permissions.includes("reports.approve");
-  const canShare = permissions.includes("reports.share");
+  const canShare = permissions.includes("reports.share") || permissions.includes("documents.share");
   const canView = permissions.includes("hair-tests.view") || canUpload || canApprove || canShare;
 
   const loadRecords = useCallback(async (signal?: AbortSignal) => {
@@ -371,10 +371,10 @@ export function HairTestsPage({
               <small>{file ? `${file.name} · ${(file.size / 1024 / 1024).toFixed(1)} MiB` : "File is private by default. Eligible small reports are losslessly compressed only when the stored result is smaller."}</small>
             </label>
           </div>
-          <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-xl border border-slate-200 bg-[#FAFBFD] p-3 text-xs leading-5 text-slate-700"><input type="checkbox" checked={shareOnUpload} onChange={(event) => { setShareOnUpload(event.target.checked); setUploadConsentConfirmed(false); }} className="mt-1 accent-teal-700" disabled={uploading} /><span>Share with the selected patient and send an app notification after upload.</span></label>
-          {shareOnUpload && <label className="mt-2 flex cursor-pointer items-start gap-2 rounded-xl border border-teal-100 bg-teal-50/60 p-3 text-xs leading-5 text-teal-950"><input type="checkbox" checked={uploadConsentConfirmed} onChange={(event) => setUploadConsentConfirmed(event.target.checked)} className="mt-1 accent-teal-700" disabled={uploading} /><span>I confirmed this patient agrees to receive the report in their signed-in app.</span></label>}
+          {canShare && <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-xl border border-slate-200 bg-[#FAFBFD] p-3 text-xs leading-5 text-slate-700"><input type="checkbox" checked={shareOnUpload} onChange={(event) => { setShareOnUpload(event.target.checked); setUploadConsentConfirmed(false); }} className="mt-1 accent-teal-700" disabled={uploading} /><span>Share with the selected patient and send an app notification after upload.</span></label>}
+          {canShare && shareOnUpload && <label className="mt-2 flex cursor-pointer items-start gap-2 rounded-xl border border-teal-100 bg-teal-50/60 p-3 text-xs leading-5 text-teal-950"><input type="checkbox" checked={uploadConsentConfirmed} onChange={(event) => setUploadConsentConfirmed(event.target.checked)} className="mt-1 accent-teal-700" disabled={uploading} /><span>I confirmed this patient agrees to receive the report in their signed-in app.</span></label>}
           <div className="hair-test-form-actions">
-            <button className="button button-primary" type="submit" disabled={uploading || (shareOnUpload && !uploadConsentConfirmed)}>
+            <button className="button button-primary" type="submit" disabled={uploading || (shareOnUpload && (!canShare || !uploadConsentConfirmed))}>
               {uploading ? <Loader2 size={14} className="animate-spin" /> : <FileUp size={14} />}
               {uploading ? "Uploading..." : shareOnUpload ? "Upload & notify patient" : "Add test record"}
             </button>
