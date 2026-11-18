@@ -22,6 +22,7 @@ import {
 import { Avatar, Modal, PageHeader, StatusPill, TableToolbar } from "../../shared/components/ui";
 import { FullSizeImageViewer, type ViewerImage } from "../../shared/components/full-size-image-viewer";
 import { useSessionState } from "../../shared/lib/use-session-state";
+import { prepareSmartImage } from "../../shared/lib/smart-image-upload";
 import {
   initialBanners,
   initialCategories,
@@ -276,6 +277,13 @@ export function ContentManagement({
   const [formTitle, setFormTitle] = useState("");
   const [formCategory, setFormCategory] = useState(categories[0] || "Hair Fall");
   const [formMediaUrl, setFormMediaUrl] = useState("");
+  const [formMediaAssets, setFormMediaAssets] = useState<{
+    originalUrl: string;
+    originalPublicId: string;
+    variants: { url: string; publicId: string; format: string; bytes: number }[];
+    processingStatus: string;
+  }>();
+  const [isUploadingFormMedia, setIsUploadingFormMedia] = useState(false);
   const [formVideoUrl, setFormVideoUrl] = useState("");
   const [formVideoPlacement, setFormVideoPlacement] = useState<"home" | "reels" | "both">("reels");
   const [formSecondaryText, setFormSecondaryText] = useState(""); // caption / comment / subtitle
@@ -328,26 +336,51 @@ export function ContentManagement({
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!canUploadMedia) return;
     const file = e.target.files?.[0];
-    if (file) {
-      if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
-        onToast("Use a JPG, PNG, or WEBP image.");
-        e.target.value = "";
-        return;
-      }
-      if (file.size > 5 * 1024 * 1024) {
-        onToast("Image file must be under 5MB.");
-        e.target.value = "";
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          setFormMediaUrl(event.target.result as string);
-          onToast("Media uploaded and ready for preview!");
+    e.target.value = "";
+    if (!file) return;
+    setIsUploadingFormMedia(true);
+    void (async () => {
+      try {
+        const prepared = await prepareSmartImage(file);
+        const body = new FormData();
+        body.append("files", prepared.original);
+        prepared.variants.forEach((variant) => body.append("files", variant.file));
+        const response = await fetch("/api/admin/media/upload", {
+          method: "POST",
+          headers: { "X-Media-Purpose": "content" },
+          body,
+          cache: "no-store",
+        });
+        const result = await response.json().catch(() => ({}));
+        const items = Array.isArray(result?.data?.items) ? result.data.items : [];
+        if (!response.ok || items.length !== 1 + prepared.variants.length) {
+          throw new Error(result?.message || "Image upload failed.");
         }
-      };
-      reader.readAsDataURL(file);
-    }
+        const assets = items.map((item: Record<string, unknown>) => ({
+          url: String(item.url || ""),
+          publicId: String(item.public_id || item.asset_id || ""),
+          format: String(item.format || ""),
+          bytes: Number(item.bytes) || 0,
+        }));
+        if (assets.some((item: { url: string; publicId: string }) => !item.url || !item.publicId)) {
+          throw new Error("The media service returned incomplete upload metadata.");
+        }
+        const original = assets[0];
+        const selected = assets.slice(1).find((item: { format: string }) => item.format === "webp") || assets[1] || original;
+        setFormMediaUrl(selected.url);
+        setFormMediaAssets({
+          originalUrl: original.url,
+          originalPublicId: original.publicId,
+          variants: assets.map((item: { url: string; publicId: string; format: string; bytes: number }) => item),
+          processingStatus: prepared.processingStatus,
+        });
+        onToast(`Image uploaded; the original is preserved in R2. ${selected === original ? "No smaller derivative was available." : "An optimized preview is ready."}`);
+      } catch (error) {
+        onToast(error instanceof Error ? error.message : "Image upload failed.");
+      } finally {
+        setIsUploadingFormMedia(false);
+      }
+    })();
   };
 
   // Add New Category
@@ -391,6 +424,7 @@ export function ContentManagement({
     setFormTitle("");
     setFormCategory(categories[0] || "Hair Fall");
     setFormMediaUrl("");
+    setFormMediaAssets(undefined);
     setFormVideoUrl("");
     setFormVideoPlacement("reels");
     setFormSecondaryText("");
@@ -429,6 +463,7 @@ export function ContentManagement({
       const r = item as ReviewContentItem;
       setFormTitle(r.patientName);
       setFormMediaUrl(r.avatar);
+      setFormMediaAssets(r.mediaAssets);
       setFormSecondaryText(r.comment);
       setFormDetailTag(r.treatment);
       setFormRating(r.rating);
@@ -437,6 +472,7 @@ export function ContentManagement({
       const b = item as BannerContentItem;
       setFormTitle(b.title);
       setFormMediaUrl(b.imageUrl);
+      setFormMediaAssets(b.mediaAssets);
       setFormSecondaryText(b.subtitle);
       setFormDetailTag(b.ctaText);
       setFormTargetRoute(b.targetRoute);
@@ -451,6 +487,10 @@ export function ContentManagement({
 
   // Save (Create or Update)
   const handleSaveContent = async () => {
+    if (isUploadingFormMedia) {
+      onToast("Wait for the image upload to finish before saving.");
+      return;
+    }
     if (!canEdit && !(canUploadMedia && !editingItemId)) {
       onToast("This account can’t edit app content.");
       return;
@@ -596,6 +636,7 @@ export function ContentManagement({
                 patientName: formTitle.trim(),
                 category: formCategory,
                 avatar: defaultImage,
+                mediaAssets: formMediaAssets,
                 comment: formSecondaryText.trim(),
                 treatment: formDetailTag.trim() || "Hair Recovery Regimen",
                 rating: formRating,
@@ -616,6 +657,7 @@ export function ContentManagement({
           duration: "Used for 3 months",
           comment: formSecondaryText.trim() || "Visible hair thickness improvements.",
           avatar: defaultImage,
+          mediaAssets: formMediaAssets,
           verified: true,
           status: savedStatus,
           updated: "Just now",
@@ -634,6 +676,7 @@ export function ContentManagement({
                 subtitle: formSecondaryText.trim(),
                 category: formCategory,
                 imageUrl: defaultImage,
+                mediaAssets: formMediaAssets,
                 ctaText: formDetailTag.trim() || "Learn More",
                   targetRoute: formTargetRoute.trim(),
                   destination: destinationFromRoute(formTargetRoute) ?? undefined,
@@ -655,6 +698,7 @@ export function ContentManagement({
           subtitle: formSecondaryText.trim(),
           category: formCategory,
           imageUrl: defaultImage,
+          mediaAssets: formMediaAssets,
           ctaText: formDetailTag.trim() || "Explore Now",
           targetRoute: formTargetRoute.trim(),
           destination: destinationFromRoute(formTargetRoute) ?? undefined,
@@ -1390,7 +1434,7 @@ export function ContentManagement({
               : "Upload media, configure category, and publish directly to the mobile app library."
           }
           submitLabel={savingVideo ? "Saving…" : canPublish && formStatus === "Published" ? "Publish to App" : "Save Draft"}
-          submitDisabled={savingVideo}
+          submitDisabled={savingVideo || isUploadingFormMedia}
           onClose={() => setIsCreateModalOpen(false)}
           onSubmit={handleSaveContent}
         >
@@ -1547,15 +1591,15 @@ export function ContentManagement({
                 <input
                   type="file"
                   id="media-upload-input"
-                  accept="image/*"
+                  accept="image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif,image/gif"
                   onChange={handleFileUpload}
                   className="hidden"
-                  disabled={!canUploadMedia}
+                  disabled={!canUploadMedia || isUploadingFormMedia}
                 />
                 <label htmlFor="media-upload-input" className="cursor-pointer flex flex-col items-center gap-1.5">
                   <UploadCloud size={20} className="text-teal-600" />
-                  <span className="text-xs font-semibold text-slate-700">{canUploadMedia ? "Click to upload app image" : "App media upload permission required"}</span>
-                  <span className="text-[10px] text-slate-400">PNG, JPG, or WEBP up to 5MB</span>
+                  <span className="text-xs font-semibold text-slate-700">{isUploadingFormMedia ? "Optimizing and uploading…" : canUploadMedia ? "Click to upload app image" : "App media upload permission required"}</span>
+                  <span className="text-[10px] text-slate-400">JPG, PNG, WebP, AVIF, HEIC, HEIF or GIF · 25 MiB max</span>
                 </label>
               </div>
 
@@ -1567,7 +1611,7 @@ export function ContentManagement({
                   className="w-full border border-slate-300 rounded-lg p-1.5 text-xs"
                   placeholder="https://images.unsplash.com/photo-..."
                   value={formMediaUrl}
-                  onChange={(e) => setFormMediaUrl(e.target.value)}
+                  onChange={(e) => { setFormMediaUrl(e.target.value); setFormMediaAssets(undefined); }}
                 />
               </div>
 

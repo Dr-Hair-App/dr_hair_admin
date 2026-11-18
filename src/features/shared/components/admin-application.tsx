@@ -35,6 +35,8 @@ export function AdminApplication({ initialPage = "overview", initialPatientId = 
   const [actorEmail, setActorEmail] = useState("");
   const role: Role = auth.admin?.role === "super_admin" ? "super-admin" : "admin";
   const [page, setPage] = useState<PageKey>(initialPage);
+  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(initialPatientId);
+  const [selectedAssessmentRef, setSelectedAssessmentRef] = useState<string | null>(initialAssessmentRef);
   const [bookingDate, setBookingDate] = useState(initialBookingDate);
   const [dashboardAnchor, setDashboardAnchor] = useState("");
   const [globalSearch, setGlobalSearch] = useState("");
@@ -56,24 +58,51 @@ export function AdminApplication({ initialPage = "overview", initialPatientId = 
   const visibleName = auth.admin?.name || actorEmail || "Admin";
   const actorName = visibleName;
 
+  const openPatient = useCallback((patientId: string, assessmentRef: string | null = null) => {
+    setSelectedPatientId(patientId);
+    setSelectedAssessmentRef(assessmentRef);
+    setPage("patients");
+    const path = assessmentRef
+      ? `/patients/${encodeURIComponent(patientId)}/assessments/${encodeURIComponent(assessmentRef)}`
+      : `/patients/${encodeURIComponent(patientId)}`;
+    window.history.pushState(null, "", path);
+  }, []);
+
+  const closePatient = useCallback(() => {
+    setSelectedPatientId(null);
+    setSelectedAssessmentRef(null);
+    setPage("patients");
+    window.history.pushState(null, "", "/overview#registered-patients");
+  }, []);
+
   useEffect(() => {
     const syncRouteState = () => {
       const query = new URLSearchParams(window.location.search);
       const queryPanel = query.get("panel") as PageKey | null;
-      const pathSegment = window.location.pathname.replace(/^\/+/, "").split("/")[0] as PageKey;
+      const pathname = window.location.pathname;
+      const segments = pathname.replace(/^\/+/, "").split("/");
+      const pathSegment = segments[0] as PageKey;
+      if (pathSegment === "patients" && segments[1]) {
+        setSelectedPatientId(decodeURIComponent(segments[1]));
+        setSelectedAssessmentRef(segments[3] ? decodeURIComponent(segments[3]) : null);
+        setPage("patients");
+        return;
+      }
       const validKeys: PageKey[] = ["overview", "patients", "catalog", "content", "orders", "tests", "bookings", "team", "activity", "notifications"];
       const resolvedPage = (queryPanel && validKeys.includes(queryPanel))
         ? queryPanel
         : (pathSegment && validKeys.includes(pathSegment))
         ? pathSegment
         : "overview";
-      setPage(initialPatientId ? "patients" : resolvedPage);
+      setPage(resolvedPage);
+      setSelectedPatientId(null);
+      setSelectedAssessmentRef(null);
       setBookingDate(query.get("date") ?? "");
       setDashboardAnchor(window.location.hash.slice(1));
     };
     window.addEventListener("popstate", syncRouteState);
     return () => window.removeEventListener("popstate", syncRouteState);
-  }, [initialPatientId]);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -127,6 +156,8 @@ export function AdminApplication({ initialPage = "overview", initialPatientId = 
       showToast("This account does not have access to that section.");
       return;
     }
+    setSelectedPatientId(null);
+    setSelectedAssessmentRef(null);
     if (nextPage === "patients") {
       setPage("overview");
       setGlobalSearch("");
@@ -155,12 +186,12 @@ export function AdminApplication({ initialPage = "overview", initialPatientId = 
 
   const content = useMemo(() => {
     switch (page) {
-      case "overview": return <Dashboard role={role} userName={visibleName} onNavigate={navigate} onOpenPatient={(patientId) => router.push(`/patients/${encodeURIComponent(patientId)}`)} permissions={permissions} events={events} admins={adminRecords} onAudit={recordAudit} onToast={showToast} anchor={dashboardAnchor} />;
-      case "patients": return initialAssessmentRef && initialPatientId
-        ? <PatientAssessmentDetailPage key={`${initialPatientId}:${initialAssessmentRef}`} patientId={initialPatientId} referenceNo={initialAssessmentRef} permissions={permissions} onToast={showToast} onAudit={recordAudit} />
-        : initialPatientId
-        ? <PatientDetailPage key={initialPatientId} patientId={initialPatientId} role={role} onToast={showToast} onAudit={recordAudit} />
-        : <OperationsPage kind="patients" globalSearch={globalSearch} onToast={showToast} permissions={permissions} onAudit={recordAudit} />;
+      case "overview": return <Dashboard role={role} userName={visibleName} onNavigate={navigate} onOpenPatient={openPatient} permissions={permissions} events={events} admins={adminRecords} onAudit={recordAudit} onToast={showToast} anchor={dashboardAnchor} />;
+      case "patients": return selectedAssessmentRef && selectedPatientId
+        ? <PatientAssessmentDetailPage key={`${selectedPatientId}:${selectedAssessmentRef}`} patientId={selectedPatientId} referenceNo={selectedAssessmentRef} permissions={permissions} onToast={showToast} onAudit={recordAudit} onBack={closePatient} />
+        : selectedPatientId
+        ? <PatientDetailPage key={selectedPatientId} patientId={selectedPatientId} role={role} onToast={showToast} onAudit={recordAudit} onBack={closePatient} />
+        : <OperationsPage kind="patients" globalSearch={globalSearch} onToast={showToast} permissions={permissions} onAudit={recordAudit} onOpenPatient={openPatient} />;
       case "catalog": return <ProductManagement onToast={showToast} permissions={permissions} panelAccess={panelAccess} globalSearch={globalSearch} onAudit={recordAudit} />;
       case "content": return <AppManagement role={role} onToast={showToast} permissions={permissions} onAudit={recordAudit} features={features} onFeaturesChange={setFeatures} panelAccess={panelAccess} onPanelAccessChange={changePanelAccess} />;
       case "orders": return <OperationsPage kind="orders" globalSearch={globalSearch} onToast={showToast} permissions={permissions} onAudit={recordAudit} />;
@@ -168,9 +199,9 @@ export function AdminApplication({ initialPage = "overview", initialPatientId = 
       case "bookings": return <OperationsPage key={bookingDate} kind="bookings" globalSearch={globalSearch} onToast={showToast} permissions={permissions} onAudit={recordAudit} initialDateFilter={bookingDate} />;
       case "notifications": return <NotificationCenter role={role} userName={visibleName} permissions={permissions} events={events} onNavigate={navigate} />;
       case "team": return role === "super-admin" ? <AdminAccountManagement /> : <Denied />;
-      case "activity": return role === "super-admin" ? <PatientAccountManagement globalSearch={globalSearch} onToast={showToast} role={role} onOpenPatient={(patientId) => router.push(`/patients/${encodeURIComponent(patientId)}`)} onAudit={recordAudit} /> : <Denied />;
+      case "activity": return role === "super-admin" ? <PatientAccountManagement globalSearch={globalSearch} onToast={showToast} role={role} onOpenPatient={openPatient} onAudit={recordAudit} /> : <Denied />;
     }
-  }, [actorName, adminRecords, bookingDate, changePanelAccess, dashboardAnchor, events, features, globalSearch, initialAssessmentRef, initialPatientId, navigate, page, panelAccess, permissions, recordAudit, role, router, setFeatures, showToast, visibleName]);
+  }, [actorName, adminRecords, bookingDate, changePanelAccess, closePatient, dashboardAnchor, events, features, globalSearch, navigate, openPatient, page, panelAccess, permissions, recordAudit, role, selectedAssessmentRef, selectedPatientId, setFeatures, showToast, visibleName]);
 
   if (auth.status === "checking") return <AdminSessionSkeleton />;
 

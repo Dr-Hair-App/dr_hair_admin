@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Activity, CalendarDays, ChevronDown, ClipboardList, Copy, Download, Eye, EyeOff, FileCheck2, FileText, History, LoaderCircle, LockKeyhole, Mail, Pencil, Phone, Pill, Plus, RotateCcw, Search, Share2, ShieldCheck, Trash2, UploadCloud, UserRound, X } from "lucide-react";
+import { Activity, ArrowLeft, CalendarDays, ChevronDown, ClipboardList, Copy, Download, Eye, EyeOff, FileCheck2, FileText, History, LoaderCircle, LockKeyhole, Mail, Pencil, Phone, Pill, Plus, RotateCcw, Search, Share2, ShieldCheck, Trash2, UploadCloud, UserRound, X } from "lucide-react";
 import type { Role } from "../../shared/types";
 import { Modal } from "../../shared/components/ui";
 import { CareArtwork, ImageChoice, dietOptions, routineOptions, type CareProductOption, type CareArt } from "./patient-care-options";
@@ -90,7 +90,7 @@ function formatDate(value?: string) {
 }
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value && typeof value === "object"); }
 
-export function PatientDetailPage({ patientId, role, onToast, onAudit }: { patientId: string; role: Role; onToast: (message: string) => void; onAudit: (action: string, target: string) => void }) {
+export function PatientDetailPage({ patientId, role, onToast, onAudit, onBack }: { patientId: string; role: Role; onToast: (message: string) => void; onAudit: (action: string, target: string) => void; onBack?: () => void }) {
   const router = useRouter();
   const [details, setDetails] = useState<PatientDetails | null>(null);
   const [pageNow, setPageNow] = useState<number | null>(null);
@@ -120,7 +120,6 @@ export function PatientDetailPage({ patientId, role, onToast, onAudit }: { patie
   const [reportOpen, setReportOpen] = useState(false);
   const [reportTitle, setReportTitle] = useState("");
   const [reportFile, setReportFile] = useState<File | null>(null);
-  const [compressReportLosslessly, setCompressReportLosslessly] = useState(true);
   const [uploadingReport, setUploadingReport] = useState(false);
   const [downloadingReport, setDownloadingReport] = useState<string | null>(null);
   const [updatingReportVisibility, setUpdatingReportVisibility] = useState<string | null>(null);
@@ -343,13 +342,13 @@ export function PatientDetailPage({ patientId, role, onToast, onAudit }: { patie
     }
     setUploadingReport(true);
     try {
-      const body = new FormData(); body.set("title", reportTitle.trim()); body.set("file", reportFile); body.set("compress_losslessly", String(compressReportLosslessly));
+      const body = new FormData(); body.set("title", reportTitle.trim()); body.set("file", reportFile);
       const response = await fetch(`/api/admin/users/${encodeURIComponent(patientId)}/reports`, { method: "POST", body, cache: "no-store" });
       const result: unknown = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(messageFrom(result, "Report upload failed."));
       const data = isRecord(result) && isRecord(result.data) ? result.data as unknown as Report : null;
       if (data) setDetails((current) => current ? { ...current, reports: [data, ...current.reports] } : current);
-      setReportTitle(""); setReportFile(null); setCompressReportLosslessly(true);
+      setReportTitle(""); setReportFile(null);
       setReportOpen(false);
       const input = document.getElementById("patient-report-file") as HTMLInputElement | null; if (input) input.value = "";
       onAudit("uploaded private patient report", `Patient ${patientId}`);
@@ -521,6 +520,17 @@ export function PatientDetailPage({ patientId, role, onToast, onAudit }: { patie
   const updateMedicine = (index: number, patch: Partial<Medication>) => setMedications((current) => current.map((medicine, itemIndex) => itemIndex === index ? { ...medicine, ...patch } : medicine));
 
   return <div className="page-wrap w-full min-w-0 space-y-5">
+    {onBack && (
+      <div>
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-xs transition hover:border-teal-300 hover:text-teal-700 hover:bg-teal-50/50"
+        >
+          <ArrowLeft size={14} /> Back to patients
+        </button>
+      </div>
+    )}
     {!canWrite && <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900"><LockKeyhole size={15} className="mt-0.5 shrink-0" />This account can view patient records. A Super Admin can edit the profile, upload reports, and add care suggestions.</div>}
 
     <div className="grid min-w-0 grid-cols-1 items-start gap-5 md:grid-cols-[minmax(245px,0.82fr)_minmax(0,1.45fr)]">
@@ -862,8 +872,7 @@ export function PatientDetailPage({ patientId, role, onToast, onAudit }: { patie
 
     {reportOpen && <Modal title="Upload patient report" description="Keep the file private and linked to this patient record." submitLabel={uploadingReport ? "Uploading…" : "Upload private report"} submitDisabled={uploadingReport || !reportFile || !reportTitle.trim()} onClose={() => setReportOpen(false)} onSubmit={() => { void uploadReport(); }}>
       <label className="block text-xs font-semibold text-slate-600">Report name<input autoFocus maxLength={160} value={reportTitle} onChange={(event) => setReportTitle(event.target.value)} placeholder="e.g. Blood test results" className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal" disabled={uploadingReport} /></label>
-      <label className="mt-4 flex cursor-pointer items-center gap-3 rounded-2xl border border-dashed border-slate-300 bg-[#FAFBFD] p-4 transition hover:border-teal-400"><input id="patient-report-file" type="file" accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/jpeg,image/png,image/webp" className="sr-only" disabled={uploadingReport} onChange={(event) => setReportFile(event.target.files?.[0] ?? null)} /><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white text-teal-700 shadow-sm"><UploadCloud size={19} /></span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold text-slate-700">{reportFile?.name || "Choose a report file"}</span><span className="mt-1 block text-[10px] text-slate-400">PDF, DOC, DOCX, JPG, PNG or WebP · up to 10 MB</span></span>{reportFile && <button type="button" className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-white hover:text-slate-700" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setReportFile(null); const input = document.getElementById("patient-report-file") as HTMLInputElement | null; if (input) input.value = ""; }} aria-label="Remove selected file"><X size={15} /></button>}</label>
-      <label className="product-compression-option mt-3"><input type="checkbox" checked={compressReportLosslessly} disabled={uploadingReport} onChange={(event) => setCompressReportLosslessly(event.target.checked)} /><span><strong>Save with lossless compression when smaller</strong><small>Reports remain byte-for-byte recoverable. If compression grows the file, the original is stored.</small></span></label>
+      <label className="mt-4 flex cursor-pointer items-center gap-3 rounded-2xl border border-dashed border-slate-300 bg-[#FAFBFD] p-4 transition hover:border-teal-400"><input id="patient-report-file" type="file" accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,image/jpeg,image/png,image/webp,image/gif,image/avif,image/heic,image/heif" className="sr-only" disabled={uploadingReport} onChange={(event) => { const selected = event.target.files?.[0] ?? null; if (selected && selected.size > 25 * 1024 * 1024) { setReportFile(null); onToast("Choose a file smaller than 25 MiB."); event.target.value = ""; return; } setReportFile(selected); }} /><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white text-teal-700 shadow-sm"><UploadCloud size={19} /></span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold text-slate-700">{reportFile?.name || "Choose a report file"}</span><span className="mt-1 block text-[10px] text-slate-400">PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, TXT, or images · up to 25 MiB</span></span>{reportFile && <button type="button" className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-white hover:text-slate-700" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setReportFile(null); const input = document.getElementById("patient-report-file") as HTMLInputElement | null; if (input) input.value = ""; }} aria-label="Remove selected file"><X size={15} /></button>}</label>
     </Modal>}
 
     {reviewingCheckIn && (

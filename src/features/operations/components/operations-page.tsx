@@ -43,6 +43,7 @@ export function OperationsPage({
   permissions = [],
   onAudit = () => {},
   initialDateFilter = "",
+  onOpenPatient,
 }: {
   kind: "patients" | "orders" | "bookings";
   globalSearch: string;
@@ -50,9 +51,10 @@ export function OperationsPage({
   permissions?: AdminPermissionId[];
   onAudit?: (action: string, target: string) => void;
   initialDateFilter?: string;
+  onOpenPatient?: (id: string) => void;
 }) {
   if (kind === "orders") return <OrdersPage globalSearch={globalSearch} onToast={onToast} onAudit={onAudit} canExport={permissions.includes("commerce.export")} />;
-  return <CareOperationsPage kind={kind} globalSearch={globalSearch} onToast={onToast} permissions={permissions} onAudit={onAudit} initialDateFilter={initialDateFilter} />;
+  return <CareOperationsPage kind={kind} globalSearch={globalSearch} onToast={onToast} permissions={permissions} onAudit={onAudit} initialDateFilter={initialDateFilter} onOpenPatient={onOpenPatient} />;
 }
 
 function CareOperationsPage({
@@ -62,6 +64,7 @@ function CareOperationsPage({
   permissions,
   onAudit,
   initialDateFilter,
+  onOpenPatient,
 }: {
   kind: CareOperationsKind;
   globalSearch: string;
@@ -69,6 +72,7 @@ function CareOperationsPage({
   permissions: AdminPermissionId[];
   onAudit: (action: string, target: string) => void;
   initialDateFilter: string;
+  onOpenPatient?: (id: string) => void;
 }) {
   const router = useRouter();
   const isPatient = kind === "patients";
@@ -497,7 +501,7 @@ function CareOperationsPage({
       onQueryChange={setQuery}
       onPageChange={(page) => setPatientPageState({ search: apiSearch, page })}
       onRetry={() => setReloadPatients((value) => value + 1)}
-      onOpenPatient={(id) => router.push(`/patients/${encodeURIComponent(id)}`)}
+      onOpenPatient={(id) => onOpenPatient ? onOpenPatient(String(id)) : router.push(`/patients/${encodeURIComponent(id)}`)}
     />;
   }
 
@@ -890,7 +894,7 @@ function CareOperationsPage({
                     <tr
                       key={patient.id}
                       className="hover:bg-slate-50/80 cursor-pointer"
-                      onClick={() => router.push(`/patients/${encodeURIComponent(patient.patientCode || patient.id)}`)}
+                      onClick={() => onOpenPatient ? onOpenPatient(String(patient.patientCode || patient.id)) : router.push(`/patients/${encodeURIComponent(patient.patientCode || patient.id)}`)}
                     >
                       <td>
                         <div className="person">
@@ -938,7 +942,11 @@ function CareOperationsPage({
                           aria-label={`Open clinical record for ${patient.name}`}
                           onClick={(e) => {
                             e.stopPropagation();
-                            router.push(`/patients/${encodeURIComponent(patient.patientCode || patient.id)}`);
+                            if (onOpenPatient) {
+                              onOpenPatient(String(patient.patientCode || patient.id));
+                            } else {
+                              router.push(`/patients/${encodeURIComponent(patient.patientCode || patient.id)}`);
+                            }
                           }}
                         >
                           <ArrowRight size={15} />
@@ -965,7 +973,7 @@ function CareOperationsPage({
                 return <tr key={patient.id}>
                   <td><div className="person"><Avatar initials={patient.initials} /><div><div className="person-name">{patient.name}</div><div className="person-sub">{patient.patientCode || patient.id}</div></div></div></td>
                   <td>{patient.email || patient.phone || "Contact not provided"}</td>
-                  <td><button className="button button-secondary button-small" onClick={() => router.push(`/patients/${encodeURIComponent(patient.patientCode || patient.id)}`)}>Open patient record</button></td>
+                  <td><button className="button button-secondary button-small" onClick={() => onOpenPatient ? onOpenPatient(String(patient.patientCode || patient.id)) : router.push(`/patients/${encodeURIComponent(patient.patientCode || patient.id)}`)}>Open patient record</button></td>
                 </tr>;
               })}{filteredPatients.length === 0 && <tr><td colSpan={3}><div className="empty-state">No patient matches that name or ID.</div></td></tr>}</tbody>
             </table>

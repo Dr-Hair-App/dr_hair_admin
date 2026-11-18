@@ -35,7 +35,6 @@ export function HairTestsPage({
   const [testName, setTestName] = useState("Scalp analysis");
   const [testDate, setTestDate] = useState(new Date().toISOString().slice(0, 10));
   const [file, setFile] = useState<File | null>(null);
-  const [compressReportLosslessly, setCompressReportLosslessly] = useState(true);
   const [uploading, setUploading] = useState(false);
 
   const [reportToConfirmVisibility, setReportToConfirmVisibility] = useState<{
@@ -143,7 +142,6 @@ export function HairTestsPage({
       const formData = new FormData();
       formData.append("file", file);
       formData.append("title", testName.trim());
-      formData.append("compress_losslessly", String(compressReportLosslessly));
 
       const res = await fetch(`/api/admin/users/${encodeURIComponent(patient.id)}/reports`, {
         method: "POST",
@@ -169,7 +167,6 @@ export function HairTestsPage({
         };
         setRecords((current) => [newRecord, ...current]);
         setFile(null);
-        setCompressReportLosslessly(true);
         event.currentTarget.reset();
         onAudit("uploaded private patient report", `${patient.id} · ${newRecord.testName}`);
         const storedBytes = Number(r.stored_bytes);
@@ -265,14 +262,14 @@ export function HairTestsPage({
       <PageHeader eyebrow="Clinical workspace" title="Hair tests & reports" description="Keep patient test files in one review queue, then approve and share results when they are ready." />
       <div className="notice" style={{ marginBottom: 15 }}>
         <FileCheck2 size={14} />
-        <span>Upload verified clinical test reports (PDF or image). Reports remain private until explicitly shared with patient consent.</span>
+        <span>Upload clinical reports. Files remain private until explicitly shared with patient consent; malware scanning is not configured.</span>
       </div>
       {canUpload && (
         <form className="card hair-test-upload w-full" onSubmit={addFile}>
           <div className="section-row">
             <div>
               <h2 className="card-title">Add a patient test result</h2>
-              <p className="card-note">Images, PDF, DOC, and DOCX · up to 10 MB</p>
+          <p className="card-note">PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, TXT, and supported images · up to 25 MiB</p>
             </div>
             <FileUp size={18} color="#167f79" />
           </div>
@@ -297,11 +294,11 @@ export function HairTestsPage({
               <span>Result file</span>
               <input
                 type="file"
-                accept="image/*,.pdf,.doc,.docx"
+                accept="image/jpeg,image/png,image/webp,image/gif,image/avif,image/heic,image/heif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"
                 onChange={(event) => {
                   const next = event.target.files?.[0] ?? null;
-                  if (next && next.size > 10 * 1024 * 1024) {
-                    onToast("Choose a file smaller than 10 MB.");
+                  if (next && next.size > 25 * 1024 * 1024) {
+                    onToast("Choose a file smaller than 25 MiB.");
                     event.target.value = "";
                     return;
                   }
@@ -309,10 +306,9 @@ export function HairTestsPage({
                 }}
                 required
               />
-              <small>{file ? `${file.name} · ${(file.size / 1024 / 1024).toFixed(1)} MB` : "File will be encrypted and saved to clinical storage."}</small>
+              <small>{file ? `${file.name} · ${(file.size / 1024 / 1024).toFixed(1)} MiB` : "File is saved privately in its original format."}</small>
             </label>
           </div>
-          <label className="product-compression-option mt-3"><input type="checkbox" checked={compressReportLosslessly} disabled={uploading} onChange={(event) => setCompressReportLosslessly(event.target.checked)} /><span><strong>Save with lossless compression when smaller</strong><small>Original file bytes are restored on download; larger compressed results are discarded.</small></span></label>
           <div className="hair-test-form-actions">
             <button className="button button-primary" type="submit" disabled={uploading}>
               {uploading ? <Loader2 size={14} className="animate-spin" /> : <FileUp size={14} />}

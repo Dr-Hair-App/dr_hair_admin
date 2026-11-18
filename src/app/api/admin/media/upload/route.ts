@@ -13,32 +13,18 @@ export async function POST(request: Request) {
   }
 
   try {
-    const incomingFormData = await request.formData();
     const purpose = request.headers.get("x-media-purpose") || "product";
-    const compression = request.headers.get("x-media-compression");
-
-    const outgoingFormData = new FormData();
-    for (const [key, value] of incomingFormData.entries()) {
-      if (value instanceof Blob) {
-        const buffer = Buffer.from(await value.arrayBuffer());
-        const fileType = value.type || "image/jpeg";
-        const fileName = (value as File).name || "upload.jpg";
-        const fileBlob = new Blob([buffer], { type: fileType });
-        outgoingFormData.append(key, fileBlob, fileName);
-      } else {
-        outgoingFormData.append(key, value);
-      }
-    }
+    if (!request.body) return noStoreJson({ message: "Attach one or more image files." }, 400);
 
     const upstream = await fetchBackend("/api/v1/media/upload", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: "application/json",
+        "Content-Type": contentType,
         "X-Media-Purpose": purpose,
-        ...(compression ? { "X-Media-Compression": compression } : {}),
       },
-      body: outgoingFormData,
+      body: request.body,
       cache: "no-store",
     });
 

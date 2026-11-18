@@ -31,6 +31,7 @@ import { Modal, StatusPill } from "../../shared/components/ui";
 import { FullSizeImageViewer, type ViewerImage } from "../../shared/components/full-size-image-viewer";
 import { useSessionState } from "../../shared/lib/use-session-state";
 import { formatCurrency } from "../lib/format";
+import { prepareSmartImage } from "../../../shared/lib/smart-image-upload";
 import type {
   ProductBenefit,
   ProductClinicalClaim,
@@ -65,6 +66,11 @@ type ProductFormState = {
 interface PreviewMedia extends ProductMedia {
   url: string;
 }
+
+type MediaUploadResponse = {
+  message?: string;
+  data?: { items?: Record<string, unknown>[] };
+};
 
 function generateUniqueSku(prefix = "DRH"): string {
   const randomNum = Math.floor(1000 + Math.random() * 9000);
@@ -810,6 +816,7 @@ function ProductEditor({
     status: UploadStatus;
     error?: string;
     file?: File;
+    progress?: number;
   }
 
   const [activeTab, setActiveTab] = useState<EditorTab>("general");
@@ -817,7 +824,6 @@ function ProductEditor({
   const [previews, setPreviews] = useState<PreviewMedia[]>([]);
   const [imageToView, setImageToView] = useState<ViewerImage | null>(null);
   const [uploadMeta, setUploadMeta] = useState<Record<string, MediaItemMeta>>({});
-  const [losslessCompression, setLosslessCompression] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [showAdvancedPlans, setShowAdvancedPlans] = useState(false);
@@ -827,6 +833,7 @@ function ProductEditor({
 
   const activeUrls = useRef<string[]>([]);
   const pendingUploadKeys = useRef(new Set<string>());
+  const activeUploadRequests = useRef(new Map<string, XMLHttpRequest>());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const setField = <K extends keyof ProductFormState>(key: K, value: ProductFormState[K]) =>
@@ -879,36 +886,77 @@ function ProductEditor({
     }));
 
     try {
+      const prepared = await prepareSmartImage(file);
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("files", prepared.original);
+      for (const variant of prepared.variants) formData.append("files", variant.file);
 
-      const res = await fetch("/api/admin/media/upload", {
-        method: "POST",
-        body: formData,
-        headers: {
-          "X-Media-Purpose": "product",
-          ...(losslessCompression ? { "X-Media-Compression": "lossless" } : {}),
-        },
+      const { ok, body } = await new Promise<{ ok: boolean; body: MediaUploadResponse }>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        activeUploadRequests.current.set(tempId, xhr);
+        xhr.open("POST", "/api/admin/media/upload");
+        xhr.setRequestHeader("X-Media-Purpose", "product");
+        xhr.upload.onprogress = (event) => {
+          if (!event.lengthComputable) return;
+          setUploadMeta((prev) => ({ ...prev, [tempId]: { status: "uploading", file, progress: Math.round((event.loaded / event.total) * 100) } }));
+        };
+        xhr.onload = () => {
+          activeUploadRequests.current.delete(tempId);
+          let responseBody: MediaUploadResponse = {};
+          try { responseBody = JSON.parse(xhr.responseText) as MediaUploadResponse; } catch { /* malformed JSON handled below */ }
+          resolve({ ok: xhr.status >= 200 && xhr.status < 300, body: responseBody });
+        };
+        xhr.onerror = () => {
+          activeUploadRequests.current.delete(tempId);
+          reject(new Error("Could not upload this image. Check your connection and retry."));
+        };
+        xhr.onabort = () => {
+          activeUploadRequests.current.delete(tempId);
+          reject(new Error("Image upload was canceled."));
+        };
+        xhr.send(formData);
       });
-
-      const body = await res.json().catch(() => ({}));
-      const cloudUrl = (body?.data?.url || body?.data?.secure_url || body?.data?.items?.[0]?.url) as
-        | string
-        | undefined;
-      const publicId = (body?.data?.public_id || body?.data?.asset_id || body?.data?.items?.[0]?.public_id) as
-        | string
-        | undefined;
-
-      if (!res.ok || !cloudUrl || !publicId) {
+      const uploadedItems = Array.isArray(body?.data?.items) ? body.data.items : [];
+      if (!ok || uploadedItems.length !== 1 + prepared.variants.length) {
         throw new Error(body?.message || `Failed to upload ${file.name}.`);
       }
-      pendingUploadKeys.current.add(publicId);
+      const assets = uploadedItems.map((item: Record<string, unknown>) => ({
+        url: String(item.url || ""),
+        publicId: String(item.public_id || item.asset_id || ""),
+        format: String(item.format || ""),
+        bytes: Number(item.bytes) || 0,
+      }));
+      if (assets.some((asset: { url: string; publicId: string }) => !asset.url || !asset.publicId)) {
+        throw new Error("The media service returned incomplete upload metadata.");
+      }
+      for (const asset of assets) pendingUploadKeys.current.add(asset.publicId);
+      const original = assets[0];
+      const selectedVariant = assets.slice(1).find((asset: { format: string }) => asset.format === "webp") || assets[1] || original;
+      const cloudUrl = selectedVariant.url;
+      const publicId = selectedVariant.publicId;
+      const variantMetadata = assets.map((asset: { url: string; publicId: string; format: string; bytes: number }) => ({
+        url: asset.url,
+        publicId: asset.publicId,
+        format: asset.format,
+        bytes: asset.bytes,
+      }));
 
       // Update form media with permanent Cloudflare R2 URL
       setForm((prev) => ({
         ...prev,
         media: prev.media.map((m) =>
-          m.name === tempId ? { ...m, name: cloudUrl, url: cloudUrl, publicId } : m
+          m.name === tempId
+            ? {
+                ...m,
+                name: cloudUrl,
+                url: cloudUrl,
+                publicId,
+                originalUrl: original.url,
+                originalPublicId: original.publicId,
+                variants: variantMetadata,
+                processingStatus: prepared.processingStatus,
+              }
+            : m
         ),
       }));
 
@@ -926,14 +974,10 @@ function ProductEditor({
         return next;
       });
 
-      const item = body?.data;
-      const savedBytes = Number(item?.bytes ?? item?.items?.[0]?.bytes);
-      const originalBytes = Number(item?.original_bytes ?? item?.items?.[0]?.original_bytes);
-      const compressed = item?.compressed === true || item?.items?.[0]?.compressed === true;
-      const savings = compressed && originalBytes > savedBytes
-        ? ` · ${(100 - (savedBytes / originalBytes) * 100).toFixed(0)}% smaller`
+      const savings = selectedVariant.bytes > 0 && original.bytes > 0 && selectedVariant.bytes < original.bytes
+        ? ` · AI-ready image is ${Math.round((1 - selectedVariant.bytes / original.bytes) * 100)}% smaller`
         : "";
-      onToast(`Uploaded ${file.name} to Cloudflare R2${savings}.`);
+      onToast(`Uploaded ${file.name} and preserved its original in R2${savings}.`);
       return cloudUrl;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : `Failed to upload ${file.name}`;
@@ -955,18 +999,18 @@ function ProductEditor({
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
 
-      // File size validation (10 MB max)
-      if (file.size > 10 * 1024 * 1024) {
-        onToast(`"${file.name}" exceeds the 10 MB limit. Please select a compressed image.`);
+      // Smart image preparation and the backend both enforce 25 MiB per file.
+      if (file.size > 25 * 1024 * 1024) {
+        onToast(`"${file.name}" exceeds the 25 MiB limit. Choose a smaller image.`);
         continue;
       }
 
-      const isSupportedImageMime = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"].includes(file.type.toLowerCase());
-      const hasSupportedImageExtension = /\.(jpe?g|png|webp|gif|avif)$/i.test(file.name);
+      const isSupportedImageMime = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif", "image/heic", "image/heif"].includes(file.type.toLowerCase());
+      const hasSupportedImageExtension = /\.(jpe?g|png|webp|gif|avif|heic|heif)$/i.test(file.name);
       const isImage = isSupportedImageMime || (!file.type && hasSupportedImageExtension);
 
       if (!isImage) {
-        onToast(`"${file.name}" is not supported. Choose a JPEG, PNG, WebP, GIF, or AVIF image.`);
+        onToast(`"${file.name}" is not supported. Choose a JPG, PNG, WebP, AVIF, HEIC, HEIF, or GIF image.`);
         continue;
       }
 
@@ -1047,6 +1091,8 @@ function ProductEditor({
     await uploadSingleMediaFile(meta.file, tempId, "image");
   };
 
+  const cancelUpload = (tempId: string) => activeUploadRequests.current.get(tempId)?.abort();
+
   const deleteUncommittedMedia = async (publicId: string) => {
     if (!pendingUploadKeys.current.has(publicId)) return;
     try {
@@ -1121,7 +1167,9 @@ function ProductEditor({
       if (removed.url) delete next[removed.url];
       return next;
     });
-    if (removed.publicId) void deleteUncommittedMedia(removed.publicId);
+    for (const id of [removed.publicId, removed.originalPublicId, ...(removed.variants || []).map((item) => item.publicId)].filter((value): value is string => Boolean(value))) {
+      void deleteUncommittedMedia(id);
+    }
   };
 
   const handleSubmit = async () => {
@@ -1683,7 +1731,7 @@ function ProductEditor({
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
+                  accept="image/jpeg,image/png,image/webp,image/gif,image/avif,image/heic,image/heif"
                   multiple
                   onChange={pickMedia}
                   className="hidden"
@@ -1693,7 +1741,7 @@ function ProductEditor({
                 </span>
                 <div>
                   <strong>{isDraggingOver ? "Drop medicine photos here" : "Upload from device"}</strong>
-                  <small>Drag & drop or browse photos (JPEG, PNG, WebP up to 10 MB). Uploads immediately to Cloudflare R2.</small>
+                  <small>Drag & drop or browse photos (JPG, PNG, WebP, AVIF, HEIC, HEIF, GIF · up to 25 MiB each). Original is retained; optimized variants are created when supported.</small>
                 </div>
                 <button
                   type="button"
@@ -1707,18 +1755,6 @@ function ProductEditor({
                 </button>
               </div>
             </div>
-
-            <label className="product-compression-option">
-              <input
-                type="checkbox"
-                checked={losslessCompression}
-                onChange={(event) => setLosslessCompression(event.target.checked)}
-              />
-              <span>
-                <strong>Save with lossless compression when smaller</strong>
-                <small>Image quality stays unchanged. R2 keeps the original bytes if compression would increase storage.</small>
-              </span>
-            </label>
 
             {/* Media Manager Gallery List */}
             <div className="product-media-manager">
@@ -1775,7 +1811,7 @@ function ProductEditor({
                         )}
                         {status === "uploading" ? (
                           <span className="inline-flex items-center gap-1 text-[8px] font-semibold text-teal-800 bg-teal-100/80 rounded px-1.5 py-0.5">
-                            <Loader2 size={9} className="animate-spin text-teal-600" /> Uploading...
+                            <Loader2 size={9} className="animate-spin text-teal-600" /> {meta?.progress == null ? "Preparing…" : `Uploading ${meta.progress}%`}
                           </span>
                         ) : status === "error" ? (
                           <span className="inline-flex items-center gap-1 text-[8px] font-bold text-rose-700 bg-rose-100 rounded px-1.5 py-0.5">
@@ -1862,6 +1898,16 @@ function ProductEditor({
                         title="Retry upload"
                       >
                         <RotateCcw size={14} className="text-teal-600" />
+                      </button>
+                    ) : status === "uploading" ? (
+                      <button
+                        type="button"
+                        className="row-action danger-action"
+                        aria-label={`Cancel uploading ${media.name}`}
+                        onClick={() => cancelUpload(media.name)}
+                        title="Cancel upload"
+                      >
+                        <X size={14} />
                       </button>
                     ) : (
                       <button

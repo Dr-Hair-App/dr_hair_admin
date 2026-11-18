@@ -2,6 +2,12 @@ import type { Status } from "../shared/types";
 import type { AppDestination } from "./lib/app-destinations";
 
 export type ContentTab = "videos" | "reviews" | "banners";
+export interface ContentMediaAssets {
+  originalUrl: string;
+  originalPublicId: string;
+  variants: { url: string; publicId: string; format: string; bytes: number }[];
+  processingStatus: string;
+}
 
 export interface VideoContentItem {
   id: string;
@@ -32,6 +38,7 @@ export interface ReviewContentItem {
   duration: string;
   comment: string;
   avatar: string;
+  mediaAssets?: ContentMediaAssets;
   verified: boolean;
   status: Status;
   updated: string;
@@ -43,6 +50,7 @@ export interface BannerContentItem {
   subtitle: string;
   category: string;
   imageUrl: string;
+  mediaAssets?: ContentMediaAssets;
   ctaText: string;
   targetRoute: string;
   destination?: AppDestination;

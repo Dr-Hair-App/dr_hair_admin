@@ -47,6 +47,10 @@ export interface ProductMedia {
   name: string;
   url?: string;
   publicId?: string;
+  originalUrl?: string;
+  originalPublicId?: string;
+  processingStatus?: string;
+  variants?: { format: string; url: string; publicId: string; bytes?: number }[];
   kind: "image" | "video";
   altText?: string;
   isPrimary?: boolean;
