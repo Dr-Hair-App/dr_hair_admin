@@ -80,6 +80,8 @@ export function HairTestsPage({
   const canSubmit = permissions.includes("hair-tests.submit");
   const canApprove = permissions.includes("reports.approve");
   const canShare = permissions.includes("reports.share") || permissions.includes("documents.share");
+  const canViewAllReports = permissions.includes("documents.view") || canApprove || canShare;
+  const reportListEndpoint = canViewAllReports ? "/api/admin/reports" : "/api/admin/reports/mine";
   const canView = permissions.includes("hair-tests.view") || canUpload || canApprove || canShare;
 
   const loadRecords = useCallback(async (signal?: AbortSignal) => {
@@ -88,7 +90,7 @@ export function HairTestsPage({
         fetch("/api/admin/hair-tests?limit=50", { cache: "no-store", signal })
           .then((res) => (res.ok ? res.json() : null))
           .catch(() => null),
-        fetch("/api/admin/reports", { cache: "no-store", signal })
+        fetch(reportListEndpoint, { cache: "no-store", signal })
           .then((res) => (res.ok ? res.json() : null))
           .catch(() => null),
       ]);
@@ -158,7 +160,7 @@ export function HairTestsPage({
     } catch {
       // Keep previous records on fetch error
     }
-  }, [patientsList, actor]);
+  }, [patientsList, actor, reportListEndpoint]);
 
   useEffect(() => {
     const controller = new AbortController();

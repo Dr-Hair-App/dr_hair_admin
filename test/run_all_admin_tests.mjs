@@ -16,6 +16,7 @@ const testFiles = [
   'test/admin_production_regressions.test.mjs',
   'test/admin_media_upload_proxy.test.mjs',
   'test/admin_clinical_report_upload_proxy.test.mjs',
+  'test/admin_my_reports_proxy.test.mjs',
   'test/e2e_browser_audit.test.mjs',
 ];
 
