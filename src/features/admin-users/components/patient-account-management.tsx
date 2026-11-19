@@ -16,7 +16,7 @@ import { SlidingTabList } from "../../shared/components/sliding-tab-list";
 import type { Role } from "../../shared/types";
 
 export interface LoginUserRecord {
-  id: number;
+  id: number | string;
   patient_code?: string;
   name: string;
   email?: string;
@@ -55,7 +55,8 @@ export function PatientAccountManagement({
   const isSuperAdmin = role === "super-admin";
   // User management state
   const [users, setUsers] = useState<LoginUserRecord[]>([]);
-  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [loadingUsers, setLoadingUsers] = useState(true);
+  const [usersLoadError, setUsersLoadError] = useState("");
   const [userPage, setUserPage] = useState(1);
   const [userPageSize, setUserPageSize] = useState(25);
   const [usersTotal, setUsersTotal] = useState(0);
@@ -79,6 +80,7 @@ export function PatientAccountManagement({
     const controller = new AbortController();
     userRequest.current = controller;
     setLoadingUsers(true);
+    setUsersLoadError("");
     try {
       const search = userSearch.trim() || globalSearch.trim();
       const params = new URLSearchParams({ page: String(userPage), limit: String(userPageSize), segment: selectedSegment });
@@ -86,17 +88,50 @@ export function PatientAccountManagement({
       const response = await fetch(`/api/admin/users?${params.toString()}`, { cache: "no-store", signal: controller.signal });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(result?.message || "Failed to load patient accounts list.");
+        throw new Error(result?.message || result?.error?.message || "Failed to load patient accounts list.");
       }
-      const rawList = Array.isArray(result?.data?.items)
-        ? result.data.items
-        : Array.isArray(result?.data)
-        ? result.data
-        : [];
-      setUsers(rawList as LoginUserRecord[]);
-      setUsersTotal(Math.max(0, Number(result?.data?.total) || rawList.length));
+      const envelope = result?.data && typeof result.data === "object" && !Array.isArray(result.data)
+        ? result.data as Record<string, unknown>
+        : null;
+      const candidates = [envelope?.items, envelope?.users, envelope?.data, result?.items, result?.users, result?.data];
+      const rawList = candidates.find(Array.isArray) as unknown[] | undefined;
+      if (!rawList) throw new Error("Patient accounts response did not contain a user list.");
+
+      const normalizedUsers = rawList.flatMap((item): LoginUserRecord[] => {
+        if (!item || typeof item !== "object") return [];
+        const record = item as Record<string, unknown>;
+        const id = record.id ?? record.user_id ?? record.userId ?? record._id;
+        if (id === undefined || id === null || String(id).trim() === "") return [];
+        const name = [record.name, record.full_name, record.fullName]
+          .find((value) => typeof value === "string" && value.trim()) as string | undefined;
+        const status = String(record.status || (record.is_blocked ? "blocked" : "active")).toLowerCase();
+        return [{
+          ...record,
+          id: typeof id === "number" ? id : String(id),
+          name: name || "Patient",
+          patient_code: String(record.patient_code ?? record.patientCode ?? ""),
+          email: typeof record.email === "string" ? record.email : undefined,
+          phone: typeof (record.phone ?? record.phone_number ?? record.phoneNumber) === "string"
+            ? String(record.phone ?? record.phone_number ?? record.phoneNumber)
+            : undefined,
+          status,
+          is_blocked: Boolean(record.is_blocked ?? record.isBlocked) || status === "blocked",
+          blocked_at: (record.blocked_at ?? record.blockedAt ?? null) as string | null,
+          blocked_reason: (record.blocked_reason ?? record.blockedReason ?? null) as string | null,
+          last_login_at: (record.last_login_at ?? record.lastLoginAt ?? null) as string | null,
+          created_at: (record.created_at ?? record.createdAt ?? null) as string | null,
+          has_completed_assessment: Boolean(record.has_completed_assessment ?? record.hasCompletedAssessment),
+        }];
+      });
+      setUsers(normalizedUsers);
+      const total = Number(envelope?.total ?? result?.meta?.total);
+      setUsersTotal(Number.isFinite(total) && total >= 0 ? total : normalizedUsers.length);
     } catch (err) {
-      if (!controller.signal.aborted) onToast(err instanceof Error ? err.message : "Could not load user accounts list.");
+      if (!controller.signal.aborted) {
+        const message = err instanceof Error ? err.message : "Could not load user accounts list.";
+        setUsersLoadError(message);
+        onToast(message);
+      }
     } finally {
       if (!controller.signal.aborted) setLoadingUsers(false);
     }
@@ -281,6 +316,15 @@ export function PatientAccountManagement({
             right={<span style={{ color: "#8a95a4", fontSize: 11 }}>{usersTotal.toLocaleString("en-IN")} patients found</span>}
           />
 
+          {usersLoadError && (
+            <div role="alert" className="mx-4 mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+              <span>Patient accounts could not be loaded: {usersLoadError}</span>
+              <button type="button" className="button button-secondary button-small" onClick={() => void loadUsers()} disabled={loadingUsers}>
+                {loadingUsers ? "Retrying…" : "Retry"}
+              </button>
+            </div>
+          )}
+
           <div id="patient-segment-panel" role="tabpanel" aria-labelledby={`patient-segment-tab-${selectedSegment}`} tabIndex={0}>
           <div key={selectedSegment} className="patient-accounts-table table-wrap overflow-x-auto animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none">
             <table>
@@ -412,7 +456,13 @@ export function PatientAccountManagement({
                   <tr>
                     <td colSpan={5}>
                       <div className="empty-state py-8 text-center text-slate-500">
-                        {loadingUsers ? "Loading user accounts..." : "No user accounts match those filters."}
+                        {loadingUsers
+                          ? "Loading patient accounts…"
+                          : usersLoadError
+                          ? "Patient accounts are unavailable. Retry to load them."
+                          : users.length === 0
+                          ? "No patient accounts are registered yet."
+                          : "No patient accounts match those filters."}
                       </div>
                     </td>
                   </tr>
@@ -444,7 +494,17 @@ export function PatientAccountManagement({
                 </div>
               </article>;
             })}
-            {filteredUsers.length === 0 && <div className="empty-state">{loadingUsers ? "Loading user accounts…" : "No user accounts match those filters."}</div>}
+            {filteredUsers.length === 0 && (
+              <div className="empty-state">
+                {loadingUsers
+                  ? "Loading patient accounts…"
+                  : usersLoadError
+                  ? "Patient accounts are unavailable. Use Retry above to try again."
+                  : users.length === 0
+                  ? "No patient accounts are registered yet."
+                  : "No patient accounts match those filters."}
+              </div>
+            )}
           </div>
           </div>
 

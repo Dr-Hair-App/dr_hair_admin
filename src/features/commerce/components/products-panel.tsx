@@ -16,6 +16,7 @@ import {
   ImagePlus,
   Info,
   Loader2,
+  Lock,
   Package,
   PackagePlus,
   Pencil,
@@ -75,10 +76,7 @@ interface PreviewMedia extends ProductMedia {
   url: string;
 }
 
-type MediaUploadResponse = {
-  message?: string;
-  data?: { items?: Record<string, unknown>[] };
-};
+type StagedProductImage = { localId: string; file: File };
 
 function generateUniqueSku(prefix = "DRH"): string {
   const randomNum = Math.floor(1000 + Math.random() * 9000);
@@ -272,7 +270,7 @@ export function ProductsPanel({
   );
   const lowStockCount = products.filter((product) => productStock(product) <= 10).length;
 
-  const saveProduct = async (form: ProductFormState, existing: ProductRecord | null): Promise<boolean> => {
+  const saveProduct = async (form: ProductFormState, existing: ProductRecord | null, stagedImages: StagedProductImage[]): Promise<boolean> => {
     const rawPrice = Number(form.price);
     if (!form.name.trim()) {
       throw new Error("Product / medicine name is required.");
@@ -385,6 +383,25 @@ export function ProductsPanel({
       )
       .filter(Boolean) as string[];
 
+    const stagedById = new Map(stagedImages.map((item) => [item.localId, item.file]));
+    const files: File[] = [];
+    const mediaForSave = orderedMedia.map((media) => {
+      const stagedFile = media.localId ? stagedById.get(media.localId) : undefined;
+      if (stagedFile) {
+        const uploadIndex = files.push(stagedFile) - 1;
+        return {
+          kind: "image" as const,
+          altText: media.altText || stagedFile.name.replace(/\.[^/.]+$/, ""),
+          isPrimary: media.isPrimary === true,
+          pending_upload: true,
+          upload_index: uploadIndex,
+        };
+      }
+      const retained = { ...media };
+      delete retained.localId;
+      return retained;
+    });
+
     const details = {
       name: form.name.trim(),
       sku: form.sku.trim().toUpperCase() || primary.sku,
@@ -395,9 +412,9 @@ export function ProductsPanel({
       compare_at_price: retailMrp,
       unitCost: Math.round(Number(form.unitCost)),
       unit_cost: Math.round(Number(form.unitCost)),
-      ...(existing ? {} : { stock: Math.max(0, Math.floor(Number(form.stock) || 0)) }),
+      stock: Math.max(0, Math.floor(Number(form.stock) || 0)),
       status: form.status,
-      media: orderedMedia,
+      media: mediaForSave,
       images: imageUrls,
       rootCauses: form.rootCauses,
       root_causes: form.rootCauses,
@@ -414,35 +431,39 @@ export function ProductsPanel({
     };
 
     const productId = existing?.id ?? `prd-${Date.now()}`;
+    const sendProduct = async (path: string, method: "POST" | "PATCH", product: Record<string, unknown>) => {
+      const body = new FormData();
+      body.set("product", JSON.stringify(product));
+      for (const file of files) body.append("files", file, file.name);
+      const response = await fetch(path, { method, body, cache: "no-store" });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.message || "Product could not be saved.");
+      return result;
+    };
 
     if (existing) {
-      const res = await fetch(`/api/admin/products/${encodeURIComponent(existing.id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(details),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(body.message || "Failed to update product details in database.");
-      }
+      const body = await sendProduct(`/api/admin/products/${encodeURIComponent(existing.id)}`, "PATCH", details);
+      const updated = (body?.data?.product || body?.data || {}) as Partial<ProductRecord>;
 
+      const savedStock = Math.max(0, Math.floor(Number(form.stock) || 0));
       onProductsChange((current) =>
-        current.map((product) => (product.id === existing.id ? { ...product, ...details } : product))
+        current.map((product) =>
+          product.id === existing.id
+            ? {
+                ...product,
+                ...details,
+                stock: Number.isFinite(Number(updated?.stock)) ? Number(updated.stock) : savedStock,
+                ...updated,
+              }
+            : product
+        )
       );
       onToast("Product details saved to catalog.");
       onRefresh?.();
       return true;
     } else {
       const payload = { id: productId, ...details, unitsSold: 0, revenue: 0 };
-      const res = await fetch("/api/admin/products", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(body.message || "Failed to add product to database.");
-      }
+      const body = await sendProduct("/api/admin/products", "POST", payload);
 
       const created = (body?.data?.product || body?.data || payload) as ProductRecord;
       onProductsChange((current) => [{ ...payload, ...created }, ...current]);
@@ -609,6 +630,7 @@ export function ProductsPanel({
                 <button type="button" className="button button-secondary button-small" onClick={() => setStockProduct(product)}><PackagePlus size={13} />Stock</button>
                 <button type="button" className="button button-secondary button-small" onClick={() => setEditorProduct(product)}><Pencil size={13} />Edit</button>
                 {product.status !== "Archived" && <button type="button" className="button button-secondary button-small" onClick={() => setArchiveProduct(product)}><Archive size={13} />Archive</button>}
+                <button type="button" className="button button-danger button-small" onClick={() => setDeleteProduct(product)}><Trash2 size={13} />Delete</button>
               </div>
             </article>;
           })}
@@ -966,7 +988,7 @@ function ProductEditor({
   categoryOptions: string[];
   rootCauseOptions: string[];
   onClose: () => void;
-  onSave: (form: ProductFormState, existing: ProductRecord | null) => Promise<boolean>;
+  onSave: (form: ProductFormState, existing: ProductRecord | null, stagedImages: StagedProductImage[]) => Promise<boolean>;
   onToast: (message: string) => void;
 }) {
   type EditorTab = "general" | "pricing" | "media" | "clinical";
@@ -1005,6 +1027,7 @@ function ProductEditor({
   const [activeShippingPreset, setActiveShippingPreset] = useState<string | null>(null);
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
   const [touchedFields, setTouchedFields] = useState<Record<string, boolean>>({});
+  const formErrorRef = useRef<HTMLDivElement>(null);
   const isStep1Valid = Boolean(form.name.trim() && form.category.trim() && form.rootCauses.length > 0);
   const isStep2Valid = form.price > 0 && form.supplyPlans.length > 0 && form.supplyPlans.every((plan) => {
     const profile = plan.shippingProfile;
@@ -1016,12 +1039,22 @@ function ProductEditor({
     setTouchedFields((prev) => (prev[fieldName] ? prev : { ...prev, [fieldName]: true }));
 
   const activeUrls = useRef<string[]>([]);
-  const pendingUploadKeys = useRef(new Set<string>());
-  const activeUploadRequests = useRef(new Map<string, XMLHttpRequest>());
+  const stagedFiles = useRef(new Map<string, File>());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const setField = <K extends keyof ProductFormState>(key: K, value: ProductFormState[K]) =>
     setForm((current) => ({ ...current, [key]: value }));
+
+  const reportSubmitError = (message: string, tab: EditorTab) => {
+    setActiveTab(tab);
+    setErrorTab(tab);
+    setFormError(message);
+    requestAnimationFrame(() => {
+      const modalBody = formErrorRef.current?.closest<HTMLElement>(".modal-body");
+      modalBody?.scrollTo({ top: 0, behavior: "smooth" });
+      formErrorRef.current?.focus({ preventScroll: true });
+    });
+  };
 
   const mergedCategories = useMemo(() => {
     return [...new Set([...PRESET_CATEGORIES, ...categoryOptions])].sort();
@@ -1093,8 +1126,9 @@ function ProductEditor({
     setTimeout(() => setIsGeneratingSku(false), 380);
   };
 
-  // Upload single file with progress tracking
-  const uploadSingleMediaFile = async (file: File, tempId: string, kind: "image") => {
+  // Validate and optimize locally. Files are sent only with the final product
+  // create/update FormData request, so a canceled editor never leaves R2 orphans.
+  const prepareSingleMediaFile = async (file: File, tempId: string) => {
     setUploadMeta((prev) => ({
       ...prev,
       [tempId]: { status: "uploading", file },
@@ -1102,106 +1136,24 @@ function ProductEditor({
 
     try {
       const prepared = await prepareSmartImage(file);
-      const formData = new FormData();
-      formData.append("files", prepared.original);
-      for (const variant of prepared.variants) formData.append("files", variant.file);
-
-      const { ok, body } = await new Promise<{ ok: boolean; body: MediaUploadResponse }>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        activeUploadRequests.current.set(tempId, xhr);
-        xhr.open("POST", "/api/admin/media/upload");
-        xhr.setRequestHeader("X-Media-Purpose", "product");
-        xhr.upload.onprogress = (event) => {
-          if (!event.lengthComputable) return;
-          setUploadMeta((prev) => ({ ...prev, [tempId]: { status: "uploading", file, progress: Math.round((event.loaded / event.total) * 100) } }));
-        };
-        xhr.onload = () => {
-          activeUploadRequests.current.delete(tempId);
-          let responseBody: MediaUploadResponse = {};
-          try { responseBody = JSON.parse(xhr.responseText) as MediaUploadResponse; } catch { /* handled below */ }
-          resolve({ ok: xhr.status >= 200 && xhr.status < 300, body: responseBody });
-        };
-        xhr.onerror = () => {
-          activeUploadRequests.current.delete(tempId);
-          reject(new Error("Could not upload this image. Check your connection and retry."));
-        };
-        xhr.onabort = () => {
-          activeUploadRequests.current.delete(tempId);
-          reject(new Error("Image upload was canceled."));
-        };
-        xhr.send(formData);
-      });
-      const uploadedItems = Array.isArray(body?.data?.items) ? body.data.items : [];
-      if (!ok || uploadedItems.length !== 1 + prepared.variants.length) {
-        throw new Error(body?.message || `Failed to upload ${file.name}.`);
-      }
-      const assets = uploadedItems.map((item: Record<string, unknown>) => ({
-        url: String(item.url || ""),
-        publicId: String(item.public_id || item.asset_id || ""),
-        format: String(item.format || ""),
-        bytes: Number(item.bytes) || 0,
-      }));
-      if (assets.some((asset: { url: string; publicId: string }) => !asset.url || !asset.publicId)) {
-        throw new Error("The media service returned incomplete upload metadata.");
-      }
-      for (const asset of assets) pendingUploadKeys.current.add(asset.publicId);
-      const original = assets[0];
-      const selectedVariant = assets.slice(1).find((asset: { format: string }) => asset.format === "webp") || assets[1] || original;
-      const cloudUrl = selectedVariant.url;
-      const publicId = selectedVariant.publicId;
-      const variantMetadata = assets.map((asset: { url: string; publicId: string; format: string; bytes: number }) => ({
-        url: asset.url,
-        publicId: asset.publicId,
-        format: asset.format,
-        bytes: asset.bytes,
-      }));
-
-      // Update form media with permanent Cloudflare R2 URL
+      // Retain the source if the browser cannot safely create an optimized
+      // variant (for example HEIC on browsers without a decoder).
+      stagedFiles.current.set(tempId, prepared.variants[0]?.file ?? prepared.original);
+      setUploadMeta((prev) => ({ ...prev, [tempId]: { status: "ready", file } }));
       setForm((prev) => ({
         ...prev,
-        media: prev.media.map((m) =>
-          m.name === tempId
-            ? {
-                ...m,
-                name: cloudUrl,
-                url: cloudUrl,
-                publicId,
-                originalUrl: original.url,
-                originalPublicId: original.publicId,
-                variants: variantMetadata,
-                processingStatus: prepared.processingStatus,
-              }
-            : m
-        ),
+        media: prev.media.map((media) => media.localId === tempId
+          ? { ...media, processingStatus: prepared.processingStatus }
+          : media),
       }));
-
-      // Update previews
-      setPreviews((current) => [
-        ...current.filter((p) => p.name !== tempId),
-        { name: cloudUrl, url: cloudUrl, kind },
-      ]);
-
-      // Update meta status
-      setUploadMeta((prev) => {
-        const next = { ...prev };
-        delete next[tempId];
-        next[cloudUrl] = { status: "ready" };
-        return next;
-      });
-
-      const savings = selectedVariant.bytes > 0 && original.bytes > 0 && selectedVariant.bytes < original.bytes
-        ? ` · Optimized image is ${Math.round((1 - selectedVariant.bytes / original.bytes) * 100)}% smaller`
-        : "";
-      onToast(`Uploaded ${file.name} to Cloudflare R2${savings}.`);
-      return cloudUrl;
+      onToast(`${file.name} is ready. It will upload when you save the product.`);
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : `Failed to upload ${file.name}`;
+      const errMsg = err instanceof Error ? err.message : `Could not prepare ${file.name}.`;
       setUploadMeta((prev) => ({
         ...prev,
         [tempId]: { status: "error", error: errMsg, file },
       }));
       onToast(errMsg);
-      return null;
     }
   };
 
@@ -1210,9 +1162,16 @@ function ProductEditor({
     if (files.length === 0) return;
 
     const validFiles: { file: File; kind: "image"; tempId: string; localUrl: string }[] = [];
+    let remainingImageSlots = Math.max(0, 10 - form.media.filter((media) => media.kind === "image").length);
+    let remainingBytes = Math.max(0, 80 * 1024 * 1024 - [...stagedFiles.current.values()].reduce((sum, file) => sum + file.size, 0));
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
+
+      if (remainingImageSlots <= 0) {
+        onToast("A product can include up to 10 images. Remove an image before adding another.");
+        break;
+      }
 
       if (file.size > 25 * 1024 * 1024) {
         onToast(`"${file.name}" exceeds the 25 MiB limit. Choose a smaller image.`);
@@ -1240,6 +1199,13 @@ function ProductEditor({
         continue;
       }
 
+      if (file.size > remainingBytes) {
+        onToast(`"${file.name}" would exceed the 80 MiB total upload limit. Remove another new image or choose a smaller file.`);
+        continue;
+      }
+      remainingBytes -= file.size;
+      remainingImageSlots -= 1;
+
       const kind = "image" as const;
       const tempId = `temp-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`;
       const localUrl = URL.createObjectURL(file);
@@ -1261,8 +1227,9 @@ function ProductEditor({
         const primary = isFirstImage;
         if (isFirstImage && v.kind === "image") isFirstImage = false;
         return {
-          name: v.tempId,
+          name: v.file.name,
           url: v.localUrl,
+          localId: v.tempId,
           kind: v.kind,
           isPrimary: primary,
           altText: v.file.name.replace(/\.[^/.]+$/, ""),
@@ -1276,7 +1243,7 @@ function ProductEditor({
     });
 
     await Promise.allSettled(
-      validFiles.map((v) => uploadSingleMediaFile(v.file, v.tempId, v.kind))
+      validFiles.map((v) => prepareSingleMediaFile(v.file, v.tempId))
     );
   };
 
@@ -1312,27 +1279,7 @@ function ProductEditor({
       onToast("Original file is no longer in memory. Please select it again.");
       return;
     }
-    await uploadSingleMediaFile(meta.file, tempId, "image");
-  };
-
-  const cancelUpload = (tempId: string) => activeUploadRequests.current.get(tempId)?.abort();
-
-  const deleteUncommittedMedia = async (publicId: string) => {
-    if (!pendingUploadKeys.current.has(publicId)) return;
-    try {
-      const response = await fetch("/api/admin/media/upload", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ public_id: publicId }),
-      });
-      if (!response.ok) {
-        const result = await response.json().catch(() => ({}));
-        throw new Error(result?.message || "Could not remove the unused upload from R2.");
-      }
-      pendingUploadKeys.current.delete(publicId);
-    } catch (error) {
-      onToast(error instanceof Error ? error.message : "Could not remove the unused upload from R2.");
-    }
+    await prepareSingleMediaFile(meta.file, tempId);
   };
 
   const handleClose = () => {
@@ -1340,7 +1287,7 @@ function ProductEditor({
       onToast("Wait for the current upload or save to finish before closing.");
       return;
     }
-    void Promise.all([...pendingUploadKeys.current].map(deleteUncommittedMedia));
+    stagedFiles.current.clear();
     onClose();
   };
 
@@ -1408,13 +1355,12 @@ function ProductEditor({
     }
     setUploadMeta((prev) => {
       const next = { ...prev };
+      if (removed.localId) delete next[removed.localId];
       delete next[removed.name];
       if (removed.url) delete next[removed.url];
       return next;
     });
-    for (const id of [removed.publicId, removed.originalPublicId, ...(removed.variants || []).map((item) => item.publicId)].filter((value): value is string => Boolean(value))) {
-      void deleteUncommittedMedia(id);
-    }
+    if (removed.localId) stagedFiles.current.delete(removed.localId);
   };
 
   // Structured Clinical Builders State Helpers
@@ -1548,60 +1494,74 @@ function ProductEditor({
   };
 
   const handleSubmit = async () => {
+    if (isSaving) return;
     setHasAttemptedSubmit(true);
     setFormError("");
     setErrorTab(null);
 
     if (!form.name.trim()) {
-      setActiveTab("general");
-      setErrorTab("general");
       markTouched("name");
-      setFormError("Product / medicine name is required before saving.");
+      reportSubmitError("Product / medicine name is required before publishing.", "general");
       return;
     }
     if (!form.category.trim()) {
-      setActiveTab("general");
-      setErrorTab("general");
       markTouched("category");
-      setFormError("Product category is required.");
+      reportSubmitError("Product category is required before publishing.", "general");
       return;
     }
     if (form.rootCauses.length === 0) {
-      setActiveTab("general");
-      setErrorTab("general");
-      setFormError("Add at least one concern tag so patients can find this product.");
+      reportSubmitError("Select at least one clinical concern tag before publishing.", "general");
       return;
     }
     if (!form.price || Number(form.price) <= 0) {
-      setActiveTab("pricing");
-      setErrorTab("pricing");
       markTouched("price");
-      setFormError("Selling price must be greater than ₹0.");
+      reportSubmitError("Selling price must be greater than ₹0.", "pricing");
+      return;
+    }
+
+    if (!isStep2Valid) {
+      reportSubmitError(
+        "Complete the packed parcel weight and all three dimensions in Pricing & Shipping before publishing.",
+        "pricing",
+      );
       return;
     }
 
     if (isUploading) {
-      setActiveTab("media");
-      setErrorTab("media");
-      setFormError(`Please wait for ${uploadingCount} photo upload${uploadingCount > 1 ? "s" : ""} to finish.`);
+      reportSubmitError(
+        `Wait for ${uploadingCount} image preparation${uploadingCount > 1 ? "s" : ""} to finish before publishing.`,
+        "media",
+      );
       return;
     }
 
     setIsSaving(true);
     try {
-      const success = await onSave(form, product);
+      const orderedStagedImages = form.media.flatMap((media) => {
+        if (!media.localId) return [];
+        const file = stagedFiles.current.get(media.localId);
+        return file ? [{ localId: media.localId, file }] : [];
+      });
+      const missingStaged = form.media.some((media) => media.localId && !stagedFiles.current.has(media.localId));
+      if (missingStaged) {
+        reportSubmitError("A selected image is no longer available. Remove it and choose it again before publishing.", "media");
+        return;
+      }
+      const success = await onSave(form, product, orderedStagedImages);
       if (success) {
-        pendingUploadKeys.current.clear();
         onClose();
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to save product to database.";
-      setFormError(message);
-      if (message.toLowerCase().includes("name") || message.toLowerCase().includes("category") || message.toLowerCase().includes("concern")) {
-        setErrorTab("general");
-      } else if (message.toLowerCase().includes("price") || message.toLowerCase().includes("mrp") || message.toLowerCase().includes("parcel") || message.toLowerCase().includes("plan")) {
-        setErrorTab("pricing");
-      }
+      const lower = message.toLowerCase();
+      const tab: EditorTab = /name|category|concern|root cause/.test(lower)
+        ? "general"
+        : /price|mrp|parcel|shipping|dimension|weight|plan|sku/.test(lower)
+        ? "pricing"
+        : /image|file|media|upload/.test(lower)
+        ? "media"
+        : activeTab;
+      reportSubmitError(message, tab);
     } finally {
       setIsSaving(false);
     }
@@ -1622,30 +1582,34 @@ function ProductEditor({
         className="product-editor-modal"
         hideFooter={true}
         title={
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-base font-bold text-slate-800 m-0 tracking-tight flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            <h2 className="text-sm sm:text-base font-bold text-slate-800 m-0 tracking-tight flex items-center gap-1.5 sm:gap-2">
               <span className="p-1 rounded-lg bg-teal-50 text-teal-700 border border-teal-200/80">
-                <Package size={16} />
+                <Package size={15} />
               </span>
               <span>{product ? `Edit · ${product.name || "Medicine"}` : "Add Medicine / Product"}</span>
             </h2>
-            <span className="inline-flex items-center text-[10px] font-semibold text-teal-800 bg-teal-50 border border-teal-200/80 rounded-full px-2.5 py-0.5">
+            <span className="inline-flex items-center text-[10px] font-semibold text-teal-800 bg-teal-50 border border-teal-200/80 rounded-full px-2 py-0.5">
               {form.category || "Hair Care"}
             </span>
             {leadPrice > 0 && (
-              <span className="inline-flex items-center text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-0.5">
+              <span className="inline-flex items-center text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
                 ₹{leadPrice}
               </span>
             )}
             {form.media.length > 0 && (
-              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-600 bg-slate-100 rounded-full px-2 py-0.5">
+              <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-medium text-slate-600 bg-slate-100 rounded-full px-2 py-0.5">
                 <ImagePlus size={11} className="text-teal-600" />
                 {form.media.length} photo{form.media.length > 1 ? "s" : ""}
               </span>
             )}
           </div>
         }
-        description="Configure product clinical classification, real-time inventory, pricing, courier shipping parcel, and high-resolution Cloudflare R2 media."
+        description={
+          <p className="text-[11px] text-slate-500 m-0 hidden sm:block">
+            Configure product clinical classification, real-time inventory, pricing, courier shipping parcel, and high-resolution Cloudflare R2 media.
+          </p>
+        }
         onClose={handleClose}
         onSubmit={() => void handleSubmit()}
       >
@@ -1660,7 +1624,9 @@ function ProductEditor({
               onClick={() => setActiveTab("general")}
             >
               <Package size={14} />
-              <span>01 · Basics & Category</span>
+              <span className="hidden sm:inline">01 · Basics & Category</span>
+              <span className="sm:hidden max-[380px]:hidden">1. Basics</span>
+              <span className="hidden max-[380px]:inline">1</span>
               {isStep1Valid ? (
                 <span className="tab-badge" title="Basics completed">✓</span>
               ) : (
@@ -1675,7 +1641,9 @@ function ProductEditor({
               onClick={() => setActiveTab("pricing")}
             >
               <Boxes size={14} />
-              <span>02 · Pricing & Shipping</span>
+              <span className="hidden sm:inline">02 · Pricing & Shipping</span>
+              <span className="sm:hidden max-[380px]:hidden">2. Pricing</span>
+              <span className="hidden max-[380px]:inline">2</span>
               {isStep2Valid ? (
                 <span className="tab-badge" title="Pricing completed">₹{leadPrice}</span>
               ) : (
@@ -1690,7 +1658,9 @@ function ProductEditor({
               onClick={() => setActiveTab("media")}
             >
               <ImagePlus size={14} />
-              <span>03 · Photos & Gallery</span>
+              <span className="hidden sm:inline">03 · Photos & Gallery</span>
+              <span className="sm:hidden max-[380px]:hidden">3. Photos</span>
+              <span className="hidden max-[380px]:inline">3</span>
               <span className="tab-badge">
                 {isUploading ? <Loader2 size={10} className="animate-spin" /> : form.media.length}
               </span>
@@ -1703,10 +1673,12 @@ function ProductEditor({
               onClick={() => setActiveTab("clinical")}
             >
               <BadgeCheck size={14} />
-              <span>04 · Clinical & How to Use</span>
+              <span className="hidden sm:inline">04 · Clinical & How to Use</span>
+              <span className="sm:hidden max-[380px]:hidden">4. Clinical</span>
+              <span className="hidden max-[380px]:inline">4</span>
               {((form.benefits?.length || 0) + (form.ingredients?.length || 0) > 0) && (
                 <span className="tab-badge">
-                  {(form.benefits?.length || 0) + (form.ingredients?.length || 0)} items
+                  {(form.benefits?.length || 0) + (form.ingredients?.length || 0)}
                 </span>
               )}
             </button>
@@ -1727,7 +1699,13 @@ function ProductEditor({
 
         {/* Global Error Banner with Instant Jump-to-Field */}
         {formError && (
-          <div className="wizard-error-banner rounded-xl border border-rose-200 bg-rose-50/95 p-3 text-xs text-rose-800 flex items-center justify-between gap-3 shadow-xs mb-3">
+          <div
+            ref={formErrorRef}
+            className="wizard-error-banner rounded-xl border border-rose-200 bg-rose-50/95 p-3 text-xs text-rose-800 flex items-center justify-between gap-3 shadow-xs mb-3"
+            role="alert"
+            aria-live="assertive"
+            tabIndex={-1}
+          >
             <div className="flex items-center gap-2">
               <AlertTriangle size={16} className="text-rose-600 shrink-0" />
               <span className="font-semibold">{formError}</span>
@@ -1781,6 +1759,33 @@ function ProductEditor({
             </div>
 
             <div className="product-form-grid">
+              {/* Product System ID (Immutable in edit mode) */}
+              {product && (
+                <div className="field field-span">
+                  <div className="flex items-center justify-between mb-1">
+                    <label htmlFor="product-system-id" className="flex items-center gap-1.5 font-semibold text-slate-700">
+                      <Lock size={12} className="text-slate-400" />
+                      <span>Product System ID</span>
+                      <span className="field-badge-optional bg-slate-100 text-slate-600 border border-slate-200">
+                        Locked / Immutable
+                      </span>
+                    </label>
+                    <span className="text-[10px] text-slate-400 font-mono">ID: {product.id}</span>
+                  </div>
+                  <input
+                    id="product-system-id"
+                    value={product.id}
+                    readOnly
+                    disabled
+                    className="bg-slate-100 text-slate-500 font-mono text-xs cursor-not-allowed border-slate-200 select-all"
+                    title="Product ID is permanent and cannot be modified."
+                  />
+                  <span className="text-[10px] text-slate-400 mt-1">
+                    Permanent system identifier tied to database records, cart checkout, and patient prescriptions.
+                  </span>
+                </div>
+              )}
+
               {/* Product Name */}
               <div className="field">
                 <div className="flex items-center justify-between mb-1">
@@ -1980,7 +1985,7 @@ function ProductEditor({
             <div className="product-step-footer">
               <button
                 type="button"
-                className="button button-secondary button-small"
+                className="button button-secondary button-small w-full sm:w-auto"
                 onClick={handleClose}
               >
                 Cancel
@@ -1992,11 +1997,11 @@ function ProductEditor({
                 <span className="w-2 h-2 rounded-full bg-slate-200" />
                 <span className="ml-1 text-[11px]">Step 1 of 4</span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
                 {product && isStep1Valid && (
                   <button
                     type="button"
-                    className="button button-secondary button-small text-teal-700 hover:text-teal-800 border-teal-200 inline-flex items-center gap-1"
+                    className="button button-secondary button-small text-teal-700 hover:text-teal-800 border-teal-200 inline-flex items-center justify-center gap-1"
                     onClick={() => void handleSubmit()}
                     disabled={isUploading || isSaving}
                     title="Quick save changes"
@@ -2007,7 +2012,7 @@ function ProductEditor({
                 )}
                 <button
                   type="button"
-                  className="button button-primary button-small inline-flex items-center gap-1.5"
+                  className="button button-primary button-small inline-flex items-center justify-center gap-1.5"
                   onClick={handleNextTab}
                 >
                   <span>Continue to Pricing</span>
@@ -2128,53 +2133,74 @@ function ProductEditor({
               <div className="field">
                 <div className="flex items-center justify-between mb-1">
                   <label htmlFor="product-stock" className="flex items-center gap-1.5 font-semibold text-slate-700">
-                    <span>{product ? "Current stock (units)" : "Initial stock (units)"}</span>
-                    {!product && <span className="field-badge-required">Required *</span>}
+                    <span>{product ? "Available stock inventory (units)" : "Initial stock (units)"}</span>
+                    <span className="field-badge-required">Required *</span>
                   </label>
+                  {product && (
+                    <span className="text-[10px] text-teal-600 font-medium">Editable</span>
+                  )}
                 </div>
                 <input
                   id="product-stock"
                   type="number"
                   min="0"
+                  step="1"
                   value={form.stock}
                   onChange={(e) => updatePrimaryPricing("stock", e.target.value)}
                   placeholder="100"
-                  readOnly={Boolean(product)}
                   aria-describedby="product-stock-help"
+                  required
                 />
                 <span id="product-stock-help" className="text-[10px] text-slate-400 mt-1">
-                  {product ? "Use Adjust inventory to change stock and record the change in the backend ledger." : "Opening inventory available for ordering."}
+                  {product
+                    ? "Directly update stock availability count. Saved immediately to catalog."
+                    : "Opening inventory available for ordering."}
                 </span>
               </div>
 
-              {/* SKU Generator */}
+              {/* SKU Generator (Locked in edit mode) */}
               <div className="field">
                 <div className="flex items-center justify-between mb-1">
                   <label htmlFor="product-sku" className="flex items-center gap-1.5 font-semibold text-slate-700">
+                    {product && <Lock size={12} className="text-slate-400" />}
                     <span>Product SKU</span>
-                    <span className="field-badge-required">Required *</span>
+                    {product ? (
+                      <span className="field-badge-optional bg-slate-100 text-slate-600 border border-slate-200">
+                        Locked in edit mode
+                      </span>
+                    ) : (
+                      <span className="field-badge-required">Required *</span>
+                    )}
                   </label>
                 </div>
                 <div className="relative flex items-center">
                   <input
                     id="product-sku"
                     value={form.sku}
-                    onChange={(e) => updatePrimaryPricing("sku", e.target.value.toUpperCase())}
+                    onChange={(e) => !product && updatePrimaryPricing("sku", e.target.value.toUpperCase())}
                     placeholder="DRH-SERUM-01"
-                    className="pr-16"
+                    readOnly={Boolean(product)}
+                    disabled={Boolean(product)}
+                    className={product ? "bg-slate-100 text-slate-500 font-mono cursor-not-allowed border-slate-200" : "pr-16"}
                     required
                   />
-                  <button
-                    type="button"
-                    className="absolute right-1.5 button button-secondary button-small text-[10px] py-1 px-2 h-7 inline-flex items-center gap-1"
-                    onClick={generateSkuWithAnimation}
-                    title="Generate unique random SKU"
-                  >
-                    <RefreshCw size={11} className={isGeneratingSku ? "animate-spin text-teal-600" : ""} />
-                    <span>Auto</span>
-                  </button>
+                  {!product && (
+                    <button
+                      type="button"
+                      className="absolute right-1.5 button button-secondary button-small text-[10px] py-1 px-2 h-7 inline-flex items-center gap-1"
+                      onClick={generateSkuWithAnimation}
+                      title="Generate unique random SKU"
+                    >
+                      <RefreshCw size={11} className={isGeneratingSku ? "animate-spin text-teal-600" : ""} />
+                      <span>Auto</span>
+                    </button>
+                  )}
                 </div>
-                <span className="text-[10px] text-slate-400 mt-1">Unique stock keeping identifier.</span>
+                <span className="text-[10px] text-slate-400 mt-1">
+                  {product
+                    ? "Unique stock keeping identifier. Locked to preserve warehouse & order history."
+                    : "Unique stock keeping identifier."}
+                </span>
               </div>
             </div>
 
@@ -2223,6 +2249,11 @@ function ProductEditor({
               </div>
 
               {/* Exact Parcel Dimensions Inputs */}
+              {hasAttemptedSubmit && !isStep2Valid && (
+                <p id="shipping-dimensions-guidance" role="alert" className="mb-2 text-xs font-semibold text-rose-700">
+                  Required to publish: enter a parcel weight, length, breadth, and height, or choose a shipping preset above.
+                </p>
+              )}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-slate-50/80 p-3 rounded-xl border border-slate-200/80">
                 <div className="field">
                   <label className="text-[10px] font-semibold text-slate-600">Weight (kg) *</label>
@@ -2230,6 +2261,9 @@ function ProductEditor({
                     type="number"
                     step="0.01"
                     min="0.01"
+                    aria-invalid={hasAttemptedSubmit && Number(leadPlan.shippingProfile?.weightKg) <= 0}
+                    aria-describedby={hasAttemptedSubmit && !isStep2Valid ? "shipping-dimensions-guidance" : undefined}
+                    className={hasAttemptedSubmit && Number(leadPlan.shippingProfile?.weightKg) <= 0 ? "border-rose-300 ring-2 ring-rose-100" : ""}
                     value={leadPlan.shippingProfile?.weightKg ?? ""}
                     onChange={(e) => {
                       const val = Number(e.target.value) || 0;
@@ -2251,6 +2285,9 @@ function ProductEditor({
                     type="number"
                     step="0.1"
                     min="1"
+                    aria-invalid={hasAttemptedSubmit && Number(leadPlan.shippingProfile?.lengthCm) <= 0}
+                    aria-describedby={hasAttemptedSubmit && !isStep2Valid ? "shipping-dimensions-guidance" : undefined}
+                    className={hasAttemptedSubmit && Number(leadPlan.shippingProfile?.lengthCm) <= 0 ? "border-rose-300 ring-2 ring-rose-100" : ""}
                     value={leadPlan.shippingProfile?.lengthCm ?? ""}
                     onChange={(e) => {
                       const val = Number(e.target.value) || 0;
@@ -2272,6 +2309,9 @@ function ProductEditor({
                     type="number"
                     step="0.1"
                     min="1"
+                    aria-invalid={hasAttemptedSubmit && Number(leadPlan.shippingProfile?.breadthCm) <= 0}
+                    aria-describedby={hasAttemptedSubmit && !isStep2Valid ? "shipping-dimensions-guidance" : undefined}
+                    className={hasAttemptedSubmit && Number(leadPlan.shippingProfile?.breadthCm) <= 0 ? "border-rose-300 ring-2 ring-rose-100" : ""}
                     value={leadPlan.shippingProfile?.breadthCm ?? ""}
                     onChange={(e) => {
                       const val = Number(e.target.value) || 0;
@@ -2293,6 +2333,9 @@ function ProductEditor({
                     type="number"
                     step="0.1"
                     min="1"
+                    aria-invalid={hasAttemptedSubmit && Number(leadPlan.shippingProfile?.heightCm) <= 0}
+                    aria-describedby={hasAttemptedSubmit && !isStep2Valid ? "shipping-dimensions-guidance" : undefined}
+                    className={hasAttemptedSubmit && Number(leadPlan.shippingProfile?.heightCm) <= 0 ? "border-rose-300 ring-2 ring-rose-100" : ""}
                     value={leadPlan.shippingProfile?.heightCm ?? ""}
                     onChange={(e) => {
                       const val = Number(e.target.value) || 0;
@@ -2459,11 +2502,11 @@ function ProductEditor({
             <div className="product-step-footer">
               <button
                 type="button"
-                className="button button-secondary button-small inline-flex items-center gap-1.5"
+                className="button button-secondary button-small inline-flex items-center justify-center gap-1.5 w-full sm:w-auto"
                 onClick={() => setActiveTab("general")}
               >
                 <ChevronLeft size={13} />
-                <span>Back to Listing</span>
+                <span>Back to Basics</span>
               </button>
               <div className="flex items-center gap-1.5 text-xs text-slate-500 font-medium">
                 <span className="w-2 h-2 rounded-full bg-emerald-500" />
@@ -2472,11 +2515,11 @@ function ProductEditor({
                 <span className="w-2 h-2 rounded-full bg-slate-200" />
                 <span className="ml-1 text-[11px]">Step 2 of 4</span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
                 {product && isStep1Valid && isStep2Valid && (
                   <button
                     type="button"
-                    className="button button-secondary button-small text-teal-700 hover:text-teal-800 border-teal-200 inline-flex items-center gap-1"
+                    className="button button-secondary button-small text-teal-700 hover:text-teal-800 border-teal-200 inline-flex items-center justify-center gap-1"
                     onClick={() => void handleSubmit()}
                     disabled={isUploading || isSaving}
                     title="Quick save changes"
@@ -2487,7 +2530,7 @@ function ProductEditor({
                 )}
                 <button
                   type="button"
-                  className="button button-primary button-small inline-flex items-center gap-1.5"
+                  className="button button-primary button-small inline-flex items-center justify-center gap-1.5"
                   onClick={handleNextTab}
                 >
                   <span>Continue to Media</span>
@@ -2509,7 +2552,7 @@ function ProductEditor({
                     Cloudflare R2 High-Speed Storage
                   </span>
                 </h3>
-                <p>Upload high-resolution medicine packaging photos (JPG, PNG, WebP, AVIF up to 25 MB). Star marks the primary cover.</p>
+                <p>Choose JPG, PNG, WebP, GIF, AVIF, HEIC, or HEIF images up to 25 MB. Changes upload together when you save; removing a saved photo takes effect on save.</p>
               </div>
               <span className="product-section-number">03</span>
             </div>
@@ -2518,7 +2561,7 @@ function ProductEditor({
               <div className="flex items-center gap-2.5 rounded-xl border border-teal-200 bg-teal-50/90 px-3.5 py-2.5 text-xs text-teal-800 shadow-sm animate-pulse mb-3">
                 <Loader2 size={16} className="animate-spin text-teal-600 shrink-0" />
                 <span className="font-semibold">
-                  Uploading {uploadingCount} image{uploadingCount > 1 ? "s" : ""} to Cloudflare R2 storage...
+                  Preparing {uploadingCount} image{uploadingCount > 1 ? "s" : ""} locally...
                 </span>
               </div>
             )}
@@ -2544,7 +2587,7 @@ function ProductEditor({
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="image/jpeg,image/png,image/webp,image/gif,image/avif,image/heic,image/heif"
+                  accept="image/*"
                   multiple
                   onChange={pickMedia}
                   className="hidden"
@@ -2554,7 +2597,7 @@ function ProductEditor({
                 </span>
                 <div>
                   <strong>{isDraggingOver ? "Drop product images here" : "Upload product photos from device"}</strong>
-                  <small>Drag & drop or browse photos (JPG, PNG, WebP, AVIF · up to 25 MB each). Automatically converted to fast WebP variants for the mobile app.</small>
+                  <small>Drag & drop or browse JPG, PNG, WebP, GIF, AVIF, HEIC, or HEIF photos (up to 25 MB each). Images are optimized on this device when supported.</small>
                 </div>
                 <button
                   type="button"
@@ -2572,8 +2615,8 @@ function ProductEditor({
             {/* Media Manager Gallery List */}
             <div className="product-media-manager">
               {form.media.map((media, index) => {
-                const meta = uploadMeta[media.name] || (media.url ? uploadMeta[media.url] : undefined);
-                const isTemp = media.name.startsWith("temp-") || (media.url && media.url.startsWith("blob:"));
+                const meta = (media.localId ? uploadMeta[media.localId] : undefined) || uploadMeta[media.name] || (media.url ? uploadMeta[media.url] : undefined);
+                const isTemp = Boolean(media.localId) || media.name.startsWith("temp-") || (media.url && media.url.startsWith("blob:"));
                 const status: UploadStatus = meta?.status || (isTemp ? "uploading" : "ready");
                 const displayUrl =
                   (media.url && (media.url.startsWith("http") || media.url.startsWith("blob:"))
@@ -2643,6 +2686,8 @@ function ProductEditor({
                           ? "Uploading to Cloudflare R2..."
                           : status === "error"
                           ? meta?.error || "Error uploading"
+                          : media.localId
+                          ? "Ready to upload with product save"
                           : displayUrl
                           ? "Ready for app"
                           : "Local"}
@@ -2707,20 +2752,10 @@ function ProductEditor({
                         type="button"
                         className="row-action"
                         aria-label={`Retry uploading ${media.name}`}
-                        onClick={() => retryUpload(media.name)}
+                        onClick={() => retryUpload(media.localId || media.name)}
                         title="Retry upload"
                       >
                         <RotateCcw size={14} className="text-teal-600" />
-                      </button>
-                    ) : status === "uploading" ? (
-                      <button
-                        type="button"
-                        className="row-action danger-action"
-                        aria-label={`Cancel uploading ${media.name}`}
-                        onClick={() => cancelUpload(media.name)}
-                        title="Cancel upload"
-                      >
-                        <X size={14} />
                       </button>
                     ) : (
                       <button
@@ -2751,7 +2786,7 @@ function ProductEditor({
             <div className="product-step-footer">
               <button
                 type="button"
-                className="button button-secondary button-small inline-flex items-center gap-1.5"
+                className="button button-secondary button-small inline-flex items-center justify-center gap-1.5 w-full sm:w-auto"
                 onClick={() => setActiveTab("pricing")}
               >
                 <ChevronLeft size={13} />
@@ -2764,11 +2799,11 @@ function ProductEditor({
                 <span className="w-2 h-2 rounded-full bg-slate-200" />
                 <span className="ml-1 text-[11px]">Step 3 of 4</span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
                 {isStep1Valid && isStep2Valid && (
                   <button
                     type="button"
-                    className="button button-secondary button-small text-teal-700 hover:text-teal-800 border-teal-200 inline-flex items-center gap-1"
+                    className="button button-secondary button-small text-teal-700 hover:text-teal-800 border-teal-200 inline-flex items-center justify-center gap-1"
                     onClick={() => void handleSubmit()}
                     disabled={isUploading || isSaving}
                     title="Publish directly"
@@ -2779,7 +2814,7 @@ function ProductEditor({
                 )}
                 <button
                   type="button"
-                  className="button button-primary button-small inline-flex items-center gap-1.5"
+                  className="button button-primary button-small inline-flex items-center justify-center gap-1.5"
                   onClick={handleNextTab}
                 >
                   <span>Continue to Clinical</span>
@@ -3151,7 +3186,7 @@ function ProductEditor({
             <div className="product-step-footer">
               <button
                 type="button"
-                className="button button-secondary button-small inline-flex items-center gap-1.5"
+                className="button button-secondary button-small inline-flex items-center justify-center gap-1.5 w-full sm:w-auto"
                 onClick={() => setActiveTab("media")}
               >
                 <ChevronLeft size={13} />
@@ -3164,14 +3199,21 @@ function ProductEditor({
                 <span className="w-2 h-2 rounded-full bg-teal-600" />
                 <span className="ml-1 text-[11px]">Step 4 of 4</span>
               </div>
+              {isUploading && (
+                <span className="text-[11px] text-teal-700" role="status" aria-live="polite">
+                  Preparing images before upload…
+                </span>
+              )}
               <button
                 type="button"
-                className="button button-primary button-small inline-flex items-center gap-1.5"
+                className="button button-primary button-small inline-flex items-center justify-center gap-1.5 w-full sm:w-auto"
                 onClick={() => void handleSubmit()}
                 disabled={isUploading || isSaving}
+                aria-busy={isSaving}
+                title={isUploading ? "Wait for image preparation to finish before publishing." : undefined}
               >
                 {isSaving ? <Loader2 size={13} className="animate-spin text-white" /> : <Check size={13} />}
-                <span>{product ? "Save product changes" : "Publish product to catalog"}</span>
+                <span>{isSaving ? (product ? "Saving product…" : "Publishing product…") : product ? "Save product changes" : "Publish product to catalog"}</span>
               </button>
             </div>
           </div>

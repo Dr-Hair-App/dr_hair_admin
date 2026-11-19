@@ -46,6 +46,8 @@ export interface ProductClinicalClaim {
 export interface ProductMedia {
   name: string;
   url?: string;
+  /** Local only: links a newly selected image to its staged File until the product save request. */
+  localId?: string;
   publicId?: string;
   originalUrl?: string;
   originalPublicId?: string;

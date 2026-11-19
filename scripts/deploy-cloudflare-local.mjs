@@ -56,7 +56,9 @@ let movedBuildOutput = false;
 try {
   run('npx', ['cf', 'build']);
   if (!fs.existsSync(buildOutput)) throw new Error('Cloudflare build output was not created.');
-  if (fs.existsSync(uploadOutput)) throw new Error('A previous deploy left upload output in place.');
+  if (fs.existsSync(uploadOutput)) {
+    fs.rmSync(uploadOutput, { recursive: true, force: true });
+  }
 
   fs.renameSync(buildOutput, uploadOutput);
   movedBuildOutput = true;

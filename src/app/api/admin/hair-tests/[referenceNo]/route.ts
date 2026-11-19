@@ -28,3 +28,30 @@ export async function GET(request: Request, { params }: RouteContext) {
     return noStoreJson({ message: "Assessment is temporarily unavailable." }, 503);
   }
 }
+
+export async function PATCH(request: Request, { params }: RouteContext) {
+  const token = await adminToken(request);
+  if (!token) return noStoreJson({ message: "Sign in to update assessment." }, 401);
+  const { referenceNo } = await params;
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return noStoreJson({ message: "Send assessment updates as JSON." }, 400);
+  }
+  try {
+    const upstream = await fetch(backendUrl(`/api/v1/admin/hair-tests/${encodeURIComponent(referenceNo)}`), {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      cache: "no-store",
+    });
+    return noStoreJson(await readJson(upstream), upstream.status);
+  } catch {
+    return noStoreJson({ message: "Assessment could not be updated." }, 503);
+  }
+}
