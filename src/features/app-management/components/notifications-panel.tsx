@@ -39,6 +39,9 @@ interface NotificationRecord {
 
 export function NotificationsPanel({ onToast, onAudit }: { onToast: (message: string) => void; onAudit: (action: string, target: string) => void }) {
   const [records, setRecords] = useState<NotificationRecord[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState("");
+  const [historyReloadKey, setHistoryReloadKey] = useState(0);
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [imageUrl, setImageUrl] = useState("");
@@ -53,21 +56,51 @@ export function NotificationsPanel({ onToast, onAudit }: { onToast: (message: st
   const [scheduledAt, setScheduledAt] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [liveAudienceCount, setLiveAudienceCount] = useState(0);
+  const [liveAudienceLoading, setLiveAudienceLoading] = useState(true);
+  const [liveAudienceError, setLiveAudienceError] = useState("");
+  const [audienceReloadKey, setAudienceReloadKey] = useState(0);
   const audienceKey = audiences.join("|");
   const toggleAudience = (value: Audience) => {
+    if (audiences.includes(value) && audiences.length === 1) return;
+    setLiveAudienceLoading(true);
+    setLiveAudienceError("");
     setAudiences((current) => current.includes(value)
       ? (current.length > 1 ? current.filter((item) => item !== value) : current)
       : [...current, value]);
   };
+  const refreshAudienceCount = () => {
+    setLiveAudienceLoading(true);
+    setLiveAudienceError("");
+    setAudienceReloadKey((key) => key + 1);
+  };
+  const refreshHistory = () => {
+    setHistoryLoading(true);
+    setHistoryError("");
+    setHistoryReloadKey((key) => key + 1);
+  };
 
   useEffect(() => {
-    fetch(`/api/admin/notifications?action=audience-count&audience=${encodeURIComponent(audienceKey)}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        setLiveAudienceCount(Number(data?.data?.targetCount) || 0);
+    const controller = new AbortController();
+    fetch(`/api/admin/notifications?action=audience-count&audience=${encodeURIComponent(audienceKey)}`, { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const payload: unknown = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const message = isRecord(payload) && typeof payload.message === "string" ? payload.message : "Audience size could not be checked.";
+          throw new Error(message);
+        }
+        const data = isRecord(payload) && isRecord(payload.data) ? payload.data : {};
+        const count = Number(data.targetCount);
+        if (!Number.isFinite(count) || count < 0) throw new Error("Audience size response was invalid.");
+        if (!controller.signal.aborted) setLiveAudienceCount(count);
       })
-      .catch(() => setLiveAudienceCount(0));
-  }, [audienceKey]);
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) setLiveAudienceError(error instanceof Error ? error.message : "Audience size could not be checked.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLiveAudienceLoading(false);
+      });
+    return () => controller.abort();
+  }, [audienceKey, audienceReloadKey]);
 
   useEffect(() => {
     if (deepLink !== "product") return;
@@ -105,11 +138,15 @@ export function NotificationsPanel({ onToast, onAudit }: { onToast: (message: st
   }, [deepLink, productLoadAttempt]);
 
   useEffect(() => {
-    fetch("/api/admin/notifications?page=1&limit=20")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data?.data?.items && Array.isArray(data.data.items)) {
-          const mapped: NotificationRecord[] = data.data.items.map((item: Record<string, unknown>) => {
+    const controller = new AbortController();
+    fetch("/api/admin/notifications?page=1&limit=20", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const payloadValue: unknown = await response.json().catch(() => ({}));
+        const payload = isRecord(payloadValue) ? payloadValue : {};
+        if (!response.ok) throw new Error(typeof payload.message === "string" ? payload.message : "Notification history could not be loaded.");
+        const items = isRecord(payload.data) && Array.isArray(payload.data.items) ? payload.data.items : null;
+        if (!items) throw new Error("Notification history response was invalid.");
+        const mapped: NotificationRecord[] = items.filter(isRecord).map((item) => {
             const rawStatus = String(item.status || "Sent");
             const status: NotificationStatus =
               rawStatus.toLowerCase() === "scheduled" ? "Scheduled"
@@ -129,13 +166,24 @@ export function NotificationsPanel({ onToast, onAudit }: { onToast: (message: st
               destination: typeof item.destination === "string" ? item.destination : undefined,
             };
           });
-          setRecords(mapped);
-        }
+        if (!controller.signal.aborted) setRecords(mapped);
       })
-      .catch(() => {});
-  }, []);
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setRecords([]);
+        setHistoryError(error instanceof Error ? error.message : "Notification history could not be loaded.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setHistoryLoading(false);
+      });
+    return () => controller.abort();
+  }, [historyReloadKey]);
 
   const submit = async () => {
+    if (liveAudienceLoading || liveAudienceError) {
+      onToast("Refresh the audience count before sending this notification.");
+      return;
+    }
     if (liveAudienceCount <= 0) {
       onToast("No eligible patients were found for this audience. Refresh the audience before sending.");
       return;
@@ -320,7 +368,7 @@ export function NotificationsPanel({ onToast, onAudit }: { onToast: (message: st
                     </label>
                   ))}
                 </div>
-                <small aria-live="polite">{liveAudienceCount.toLocaleString("en-IN")} eligible device{liveAudienceCount === 1 ? "" : "s"} · groups are combined without duplicate devices</small>
+                {liveAudienceLoading ? <small role="status">Checking eligible devices…</small> : liveAudienceError ? <small className="flex items-center gap-2" role="alert">Audience count unavailable: {liveAudienceError}<button type="button" className="text-action" onClick={refreshAudienceCount}>Retry</button></small> : <small aria-live="polite">{liveAudienceCount.toLocaleString("en-IN")} eligible device{liveAudienceCount === 1 ? "" : "s"} · groups are combined without duplicate devices</small>}
               </fieldset>
 
               <label className="field">
@@ -384,7 +432,7 @@ export function NotificationsPanel({ onToast, onAudit }: { onToast: (message: st
               <button
                 className="button button-primary"
                 type="button"
-                disabled={isSubmitting || (deepLink === "product" && (productsLoading || Boolean(productsError) || !products.some((product) => product.id === productId)))}
+                disabled={isSubmitting || liveAudienceLoading || Boolean(liveAudienceError) || liveAudienceCount <= 0 || (deepLink === "product" && (productsLoading || Boolean(productsError) || !products.some((product) => product.id === productId)))}
                 onClick={submit}
               >
                 <Send size={14} />
@@ -400,10 +448,15 @@ export function NotificationsPanel({ onToast, onAudit }: { onToast: (message: st
               <h2 className="card-title">Recent notification history</h2>
               <p className="card-note">Delivered FCM push notifications and in-app announcements.</p>
             </div>
-            <span className="text-[10px] text-slate-400">{records.length} records</span>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-slate-400">{historyLoading ? "Loading…" : historyError ? "History unavailable" : `${records.length} records`}</span>
+              <button type="button" className="button button-secondary button-small" onClick={refreshHistory} disabled={historyLoading}>Refresh</button>
+            </div>
           </div>
 
           <div className="divide-y divide-slate-100">
+            {historyError && <div className="m-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800" role="alert">Notification history could not be loaded: {historyError} <button type="button" className="ml-2 font-semibold underline" onClick={refreshHistory} disabled={historyLoading}>Try again</button></div>}
+            {historyLoading && <div className="empty-state" role="status">Loading notification history…</div>}
             {records.map((record) => (
               <article key={record.id} className="flex items-start gap-3 py-3.5">
                 <span className="activity-icon mt-0.5"><BellRing size={14} /></span>
@@ -444,7 +497,7 @@ export function NotificationsPanel({ onToast, onAudit }: { onToast: (message: st
                 )}
               </article>
             ))}
-            {records.length === 0 && (
+            {!historyLoading && !historyError && records.length === 0 && (
               <div className="empty-state">No notifications recorded yet.</div>
             )}
           </div>

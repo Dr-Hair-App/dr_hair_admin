@@ -174,11 +174,11 @@ function CareOperationsPage({
       try {
         const response = await cachedFetch(
           "/api/admin/appointments",
-          undefined,
+          { signal: controller.signal },
           TTL_PROFILES.navigationShort,
         );
         const result = await response.json().catch(() => ({}));
-        if (!response.ok) return;
+        if (controller.signal.aborted || !response.ok) return;
         const data = result.data && typeof result.data === "object" ? result.data : {};
         const items = Array.isArray(data.items) ? data.items : [];
         setApiBookings(items.map((item: Record<string, unknown>) => ({

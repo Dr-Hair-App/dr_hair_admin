@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Activity,
   ArrowRight,
   Calendar,
   ChevronRight,
@@ -88,6 +89,7 @@ const adminScreens: ScreenShortcut[] = [
   { key: "content", title: "App Management & CMS", category: "Content", description: "Banners, clinic stories, home promotions, feeds", icon: PanelsTopLeft },
   { key: "team", title: "Admin Team & Access", category: "Security", description: "Staff accounts, role permissions, audit security", icon: ShieldCheck },
   { key: "activity", title: "Patient Accounts", category: "Security", description: "Review patient login access and account status", icon: UsersRound },
+  { key: "apiTraffic", title: "API Traffic", category: "Security", description: "Review Admin API response status and processing time", icon: Activity },
 ];
 
 const screenPlaceholders: Record<PageKey, string> = {
@@ -101,6 +103,7 @@ const screenPlaceholders: Record<PageKey, string> = {
   team: "Search admin accounts, staff names, roles... (⌘K)",
   activity: "Search patient accounts by name, phone, email, or code... (⌘K)",
   notifications: "Search clinic alerts, notifications... (⌘K)",
+  apiTraffic: "Search API routes and request IDs... (⌘K)",
 };
 
 type FilterCategory = "all" | "patients" | "products" | "bookings" | "pages";

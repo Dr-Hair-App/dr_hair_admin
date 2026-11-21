@@ -82,6 +82,16 @@ describe("Admin Panel Request Optimization Verification (Milestone 2)", () => {
     assert.match(source, /!isPatient && !showAppointmentForm/);
   });
 
+  it("operations-page.tsx detaches obsolete appointment-list consumers after navigation", async () => {
+    const source = await read("../src/features/operations/components/operations-page.tsx");
+    const appointmentEffect = source.slice(
+      source.indexOf('cachedFetch(\n          "/api/admin/appointments"'),
+      source.indexOf("}, [isPatient, reloadBookings]);"),
+    );
+    assert.match(appointmentEffect, /\{ signal: controller\.signal \}/);
+    assert.match(appointmentEffect, /controller\.signal\.aborted \|\| !response\.ok/);
+  });
+
   it("patient-detail-page.tsx and patient-assessment-detail-page.tsx reuse cached product catalog", async () => {
     const detail = await read("../src/features/operations/components/patient-detail-page.tsx");
     assert.match(detail, /cachedFetch\(\s*["']\/api\/admin\/products["']/);
@@ -90,8 +100,17 @@ describe("Admin Panel Request Optimization Verification (Milestone 2)", () => {
     assert.match(assessment, /cachedFetch\(\s*["']\/api\/admin\/products["']/);
   });
 
+  it("limits notification-center audit fetch to the activity rows it can display", async () => {
+    const center = await read("../src/features/notifications/components/notification-center.tsx");
+    assert.match(center, /\["auditEvents", "\/api\/admin\/audit-logs\?limit=20"\]/);
+    assert.match(center, /\.slice\(0, 12\)/);
+    assert.match(center, /\{ cache: "no-store", signal: controller\.signal \}/, "notification source requests should abort when the center unmounts");
+  });
+
   it("admin-application.tsx only re-fetches dashboard summary on revision if page === 'overview'", async () => {
     const app = await read("../src/features/shared/components/admin-application.tsx");
-    assert.match(app, /page !== ["']overview["'] && dashboardSummary !== null/);
+    assert.match(app, /const hasDashboardSummary = dashboardSummary !== null/);
+    assert.match(app, /page !== ["']overview["'] && hasDashboardSummary/);
+    assert.match(app, /\[auth\.status, dashboardSummaryRevision, hasDashboardSummary, page\]/);
   });
 });

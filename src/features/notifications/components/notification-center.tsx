@@ -61,7 +61,7 @@ export function NotificationCenter({
     if (hasPermission(role, permissions, "orders.manage")) sources.push(["orders", "/api/admin/orders?limit=100"]);
     if (hasPermission(role, permissions, "hair-tests.view")) sources.push(["hairTests", "/api/admin/hair-tests?limit=100"]);
     if (hasPermission(role, permissions, "reports.share")) sources.push(["reports", "/api/admin/reports?limit=100"]);
-    if (hasPermission(role, permissions, "audit.view")) sources.push(["auditEvents", "/api/admin/audit-logs?limit=100"]);
+    if (hasPermission(role, permissions, "audit.view")) sources.push(["auditEvents", "/api/admin/audit-logs?limit=20"]);
     void Promise.resolve().then(() => {
       if (controller.signal.aborted) return [];
       setIsLoading(true);
@@ -70,7 +70,7 @@ export function NotificationCenter({
       try {
         const response = await cachedFetch(
           url,
-          { cache: "no-store" },
+          { cache: "no-store", signal: controller.signal },
           TTL_PROFILES.navigationShort,
           { forceRefresh: reloadKey > 0 },
         );

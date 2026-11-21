@@ -12,6 +12,7 @@ const validPanelKeys: readonly string[] = [
   "team",
   "activity",
   "notifications",
+  "apiTraffic",
   "patients",
 ];
 

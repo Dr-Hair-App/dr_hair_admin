@@ -80,7 +80,7 @@ export function AppManagement({
   return <div className="page-wrap workspace-page app-management-page w-full min-w-0">
     <PageHeader eyebrow="Dr. Hair · App experience" title="App Management" description="Manage what patients see, receive, and need to access the Dr. Hair app." />
     <SlidingTabList activeKey={resolvedTab ?? ""} className="commerce-tabs app-management-tabs" label="App management sections">
-      {availableTabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={resolvedTab === id} className={`commerce-tab ${resolvedTab === id ? "selected" : ""}`} onClick={() => setActiveTab(id)}><Icon size={15} />{label}</button>)}
+      {availableTabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-label={label} title={label} aria-selected={resolvedTab === id} className={`commerce-tab ${resolvedTab === id ? "selected" : ""}`} onClick={() => setActiveTab(id)}><Icon size={17} aria-hidden="true" /><span className="app-management-tab-label">{label}</span></button>)}
     </SlidingTabList>
     {selectedMeta && <div className="app-section-context" aria-live="polite"><span className="app-section-context-mark" /><p>{selectedMeta.description}</p></div>}
     <section key={resolvedTab} className="tab-panel-transition" aria-label={selectedMeta?.label ?? "App management"}>

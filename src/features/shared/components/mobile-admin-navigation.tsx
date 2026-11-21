@@ -17,6 +17,7 @@ const shortLabels: Partial<Record<PageKey, string>> = {
   team: "Team",
   activity: "Accounts",
   notifications: "Alerts",
+  apiTraffic: "API",
 };
 
 export function MobileAdminNavigation({

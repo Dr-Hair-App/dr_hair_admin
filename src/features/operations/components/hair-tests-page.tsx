@@ -36,22 +36,6 @@ export function HairTestsPage({
   const [query, setQuery] = useState("");
   const [patientId, setPatientId] = useState(patients[0]?.id ?? "");
 
-  // Keep patientsListRef in sync and backfill patient names into already loaded records
-  useEffect(() => {
-    patientsListRef.current = patientsList;
-    if (patientsList.length > 0) {
-      setRecords((currentRecords) =>
-        currentRecords.map((record) => {
-          if (!record.patientName || record.patientName.startsWith("Patient #")) {
-            const matched = patientsList.find((p) => String(p.id) === String(record.patientId));
-            if (matched) return { ...record, patientName: matched.name };
-          }
-          return record;
-        })
-      );
-    }
-  }, [patientsList]);
-
   useEffect(() => {
     const controller = new AbortController();
     cachedFetch("/api/admin/users?page=1&limit=100", { signal: controller.signal }, TTL_PROFILES.navigationShort)
@@ -73,6 +57,7 @@ export function HairTestsPage({
               status: "Active",
             };
           });
+          patientsListRef.current = live;
           setPatientsList(live);
           setPatientId((curr) => (curr && live.some((p) => p.id === curr) ? curr : live[0]?.id || ""));
         }
@@ -186,11 +171,23 @@ export function HairTestsPage({
     return () => { window.clearTimeout(deferredLoad); controller.abort(); };
   }, [loadRecords]);
 
-  const filtered = useMemo(() => records.filter((record) =>
+  const recordsWithPatientNames = useMemo(() => {
+    if (patientsList.length === 0) return records;
+    const patientNames = new Map(patientsList.map((patient) => [String(patient.id), patient.name]));
+    return records.map((record) => {
+      if (!record.patientName || record.patientName.startsWith("Patient #")) {
+        const patientName = patientNames.get(String(record.patientId));
+        if (patientName) return { ...record, patientName };
+      }
+      return record;
+    });
+  }, [patientsList, records]);
+
+  const filtered = useMemo(() => recordsWithPatientNames.filter((record) =>
     `${record.id} ${record.patientId} ${record.patientName} ${record.testName} ${record.fileName} ${record.status} ${record.aiAssessmentStatus || ""}`.toLowerCase().includes(query.toLowerCase())
-  ), [records, query]);
-  const pendingAiCount = records.filter((record) => record.recordKind === "assessment" && ["queued", "processing"].includes(record.aiAssessmentStatus || "")).length;
-  const failedAiCount = records.filter((record) => record.recordKind === "assessment" && record.aiAssessmentStatus === "failed").length;
+  ), [recordsWithPatientNames, query]);
+  const pendingAiCount = recordsWithPatientNames.filter((record) => record.recordKind === "assessment" && ["queued", "processing"].includes(record.aiAssessmentStatus || "")).length;
+  const failedAiCount = recordsWithPatientNames.filter((record) => record.recordKind === "assessment" && record.aiAssessmentStatus === "failed").length;
 
   const addFile = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -344,7 +341,7 @@ export function HairTestsPage({
       <PageHeader eyebrow="Clinical workspace" title="Hair tests & reports" description="Keep patient test files in one review queue, then approve and share results when they are ready." />
       <div className="notice" style={{ marginBottom: 15 }}>
         <FileCheck2 size={14} />
-        <span>Upload clinical reports. Files remain private until explicitly shared with patient consent; malware scanning is not configured.</span>
+        <span>Malware scanning is not configured. Reports can stay private, but patient sharing is blocked until a clean scan is available.</span>
       </div>
       {canUpload && (
         <form className="card hair-test-upload w-full" onSubmit={addFile}>
@@ -407,7 +404,7 @@ export function HairTestsPage({
           <div>
             <h2 className="card-title">Test review queue</h2>
             <p className="card-note">
-              {records.filter((item) => item.status === "In review").length} waiting for doctor review · {records.filter((item) => item.status === "Approved").length} approved to share · {records.filter((item) => item.status === "Shared").length} shared with patients · {pendingAiCount} AI pending · {failedAiCount} AI failed
+              {recordsWithPatientNames.filter((item) => item.status === "In review").length} waiting for doctor review · {recordsWithPatientNames.filter((item) => item.status === "Approved").length} approved to share · {recordsWithPatientNames.filter((item) => item.status === "Shared").length} shared with patients · {pendingAiCount} AI pending · {failedAiCount} AI failed
             </p>
           </div>
           <div className="flex items-center gap-2">

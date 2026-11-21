@@ -569,7 +569,8 @@ tbody tr:hover { background-color: #f8fafc; }
 .app-management-page .commerce-tab:hover, .product-workspace-page .commerce-tab:hover { background: #f4f8fa; }
 .app-management-page .commerce-tab.selected, .product-workspace-page .commerce-tab.selected { background: transparent; color: #fff; box-shadow: none; }
 .app-management-page .commerce-tab.selected svg, .product-workspace-page .commerce-tab.selected svg { color: #a2e5dc; }
-.app-management-page .commerce-tab.selected > span, .product-workspace-page .commerce-tab.selected > span { background: rgba(255,255,255,.16); color: #fff; }
+.app-management-page .commerce-tab.selected > span:not(.app-management-tab-label), .product-workspace-page .commerce-tab.selected > span { background: rgba(255,255,255,.16); color: #fff; }
+.app-management-page .app-management-tab-label { display: inline; border-radius: 0; background: transparent; padding: 0; color: inherit; font-size: inherit; }
 .clinic-bookings-page .clinical-metric { border-top-width: 3px; padding-top: 11px; transition: transform var(--motion-fast) var(--ease-standard), box-shadow var(--motion-fast) var(--ease-standard); }
 .clinic-bookings-page .clinical-metric-blue { border-top-color: #7ba5cf; }
 .clinic-bookings-page .clinical-metric-teal { border-top-color: #40afa1; }
@@ -1941,6 +1942,8 @@ tbody tr:hover { background-color: #f8fafc; }
   .card-title { line-height: 1.4; }
   .app-management-page .commerce-tabs, .product-workspace-page .commerce-tabs { width: calc(100% + 15px); max-width: calc(100% + 15px); margin-right: -15px; padding-right: 15px; scroll-padding-inline: 8px; scroll-snap-type: x proximity; }
   .app-management-page .commerce-tab, .product-workspace-page .commerce-tab { scroll-snap-align: center; }
+  .app-management-page .app-management-tabs .commerce-tab { flex: 1 0 44px; justify-content: center; padding-right: 8px; padding-left: 8px; }
+  .app-management-page .app-management-tab-label { display: none; }
   .commerce-tab { min-height: 44px; }
   .patient-profile-tabs { overflow-x: auto; scrollbar-width: thin; }
   .patient-profile-tabs button { min-height: 42px; }

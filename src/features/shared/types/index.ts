@@ -28,7 +28,8 @@ export type AdminPermissionId =
   | "orders.manage"
   | "promotions.manage"
   | "commerce.export"
-  | "bookings.manage";
+  | "bookings.manage"
+  | "audit.view";
 export type AdminPermissionOverride = "allow" | "deny";
 
 export type PageKey =
@@ -41,7 +42,8 @@ export type PageKey =
   | "bookings"
   | "team"
   | "activity"
-  | "notifications";
+  | "notifications"
+  | "apiTraffic";
 
 export type Status =
   | "Active"

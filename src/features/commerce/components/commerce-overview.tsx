@@ -8,9 +8,11 @@ import type { CommercePeriod, CouponRecord, ProductRecord } from "../types";
 type SalesBucket = { key: string; label: string; order_count: number; gross_sales: number; refunds: number; net_sales: number };
 type SalesReport = { period: CommercePeriod; currency: string; totals: { order_count: number; gross_sales: number; refunds: number; net_sales: number }; buckets: SalesBucket[] };
 
-export function CommerceOverview({ products, coupons, onNavigate }: {
+export function CommerceOverview({ products, coupons, canViewProducts, canViewPromotions, onNavigate }: {
   products: ProductRecord[];
   coupons: CouponRecord[];
+  canViewProducts: boolean;
+  canViewPromotions: boolean;
   onNavigate: (tab: "overview" | "products" | "coupons") => void;
 }) {
   const [period, setPeriod] = useState<CommercePeriod>("month");
@@ -68,11 +70,11 @@ export function CommerceOverview({ products, coupons, onNavigate }: {
           <div className="chart-foot"><span><i className="legend-dot" /> Net paid sales</span><span>{report.totals.order_count} orders · {formatCompactCurrency(report.totals.gross_sales)} gross</span></div>
         </>}
       </section>
-      <section className="card top-products-card"><div className="section-row"><div><h2 className="card-title">Top products</h2><p className="card-note">By recorded lifetime net sales</p></div><button className="text-action" onClick={() => onNavigate("products")}>View products <ArrowRight size={13} /></button></div>
+      {canViewProducts && <section className="card top-products-card"><div className="section-row"><div><h2 className="card-title">Top products</h2><p className="card-note">By recorded lifetime net sales</p></div><button className="text-action" onClick={() => onNavigate("products")}>View products <ArrowRight size={13} /></button></div>
         {topProducts.length ? <div className="top-product-list">{topProducts.map((product, index) => <div className="top-product-row" key={product.id}><span className="top-product-rank">0{index + 1}</span><span className="activity-icon"><Package size={14} /></span><div className="top-product-copy"><strong>{product.name}</strong><span>{product.unitsSold.toLocaleString("en-IN")} units · {product.category}</span></div><strong className="top-product-sales">{formatCompactCurrency(product.revenue)}</strong></div>)}</div> : <div className="empty-state">No product performance data is available.</div>}
-      </section>
+      </section>}
     </div>
-    <section className="commerce-quick-links"><div className="commerce-quick-copy"><span className="commerce-quick-icon"><Sparkles size={17} /></span><div><strong>Store setup</strong><span>{activeCoupons} active coupon codes available.</span></div></div><div className="commerce-quick-actions"><button className="button button-secondary" onClick={() => onNavigate("coupons")}><BadgePercent size={14} />Manage coupons</button><button className="button button-secondary" onClick={() => onNavigate("products")}><ArrowRight size={14} />View products</button></div></section>
+    {(canViewProducts || canViewPromotions) && <section className="commerce-quick-links"><div className="commerce-quick-copy"><span className="commerce-quick-icon"><Sparkles size={17} /></span><div><strong>Store setup</strong>{canViewPromotions && <span>{activeCoupons} active coupon codes available.</span>}</div></div><div className="commerce-quick-actions">{canViewPromotions && <button className="button button-secondary" onClick={() => onNavigate("coupons")}><BadgePercent size={14} />Manage coupons</button>}{canViewProducts && <button className="button button-secondary" onClick={() => onNavigate("products")}><ArrowRight size={14} />View products</button>}</div></section>}
   </>;
 }
 

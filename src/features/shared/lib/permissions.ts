@@ -18,12 +18,14 @@ export const navigationItems: NavigationItem[] = [
   { key: "bookings", label: "Clinic appointments", group: "Workspace", icon: "CalendarDays" },
   { key: "team", label: "Admin users", group: "Management", icon: "ShieldCheck", superAdminOnly: true },
   { key: "activity", label: "Patient accounts", group: "Management", icon: "UsersRound", superAdminOnly: true },
+  { key: "apiTraffic", label: "API Traffic", group: "Management", icon: "Activity" },
 ];
 
 export type PanelFeatureAccess = Record<string, boolean>;
 
 export function canAccessPage(role: Role, page: PageKey, panelAccess?: PanelFeatureAccess, permissions?: AdminPermissionId[]): boolean {
   if (page === "notifications") return true;
+  if (page === "apiTraffic") return role === "super-admin" || permissions?.includes("audit.view") === true;
   const item = navigationItems.find((entry) => entry.key === page);
   if (!item || (item.superAdminOnly && role !== "super-admin")) return false;
   if (role === "super-admin") return true;

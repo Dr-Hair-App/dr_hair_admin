@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { AdminAccountManagement } from "../../admin-users/components/admin-account-management";
 import { PatientAccountManagement } from "../../admin-users/components/patient-account-management";
 import { AppManagement } from "../../app-management/components/app-management";
 import { ProductManagement } from "../../commerce/components/product-management";
 import { Dashboard } from "../../dashboard/components/dashboard";
 import { NotificationCenter } from "../../notifications/components/notification-center";
+import { ApiTrafficPage } from "../../operations/components/api-traffic-page";
 import { HairTestsPage } from "../../operations/components/hair-tests-page";
 import { OperationsPage } from "../../operations/components/operations-page";
 import {
@@ -17,7 +18,13 @@ import {
 } from "../lib/demo-data";
 import { canAccessPage, type PanelFeatureAccess } from "../lib/permissions";
 import { useSessionState } from "../lib/use-session-state";
-import { cachedFetch, clearCache, TTL_PROFILES } from "../lib/api-cache";
+import { installAdminFetchRecorder, setAdminRequestView } from "../lib/admin-request-recorder";
+import {
+  cachedFetch,
+  clearCache,
+  setCacheSessionScope,
+  TTL_PROFILES,
+} from "../lib/api-cache";
 import type {
   AdminRecord,
   AdminDashboardSummary,
@@ -63,6 +70,7 @@ const superAdminPermissions: AdminPermissionId[] = [
   "promotions.manage",
   "commerce.export",
   "bookings.manage",
+  "audit.view",
 ];
 
 export function AdminApplication({
@@ -79,6 +87,7 @@ export function AdminApplication({
   const [auth, setAuth] = useState<{
     status: "checking" | "signed-out" | "signed-in";
     admin?: AdminIdentity;
+    message?: string;
   }>({ status: "checking" });
   const [actorEmail, setActorEmail] = useState("");
   const role: Role =
@@ -109,10 +118,16 @@ export function AdminApplication({
   });
   const [dashboardSummary, setDashboardSummary] =
     useState<AdminDashboardSummary | null>(null);
+  const hasDashboardSummary = dashboardSummary !== null;
   const [dashboardSummaryRevision, setDashboardSummaryRevision] = useState(0);
   useEffect(() => {
-    if (auth.status !== "signed-in") clearCache();
+    if (auth.status !== "signed-in") setCacheSessionScope(null);
   }, [auth.status]);
+  useLayoutEffect(() => {
+    setAdminRequestView(page);
+    if (auth.status !== "signed-in") return;
+    return installAdminFetchRecorder();
+  }, [auth.status, page]);
   const [events, setEvents] = useSessionState<AuditEventRecord[]>(
     "drhair-demo-audit",
     initialAuditEvents,
@@ -180,6 +195,7 @@ export function AdminApplication({
         "team",
         "activity",
         "notifications",
+        "apiTraffic",
       ];
       const resolvedPage =
         queryPanel && validKeys.includes(queryPanel)
@@ -202,7 +218,16 @@ export function AdminApplication({
     fetch("/api/auth/session", { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) {
-          setAuth({ status: "signed-out" });
+          if (response.status === 401) {
+            setAuth({ status: "signed-out" });
+            return;
+          }
+          const payload: unknown = await response.json().catch(() => ({}));
+          const message = payload && typeof payload === "object"
+            && typeof (payload as Record<string, unknown>).message === "string"
+            ? (payload as Record<string, string>).message
+            : "The sign-in service is temporarily unavailable. Try again shortly.";
+          setAuth({ status: "signed-out", message });
           return;
         }
         const rawResult: unknown = await response.json().catch(() => ({}));
@@ -218,11 +243,17 @@ export function AdminApplication({
           setAuth({ status: "signed-out" });
           return;
         }
+        setCacheSessionScope(admin.id || admin.email);
         setActorEmail(admin.email);
         setAuth({ status: "signed-in", admin });
       })
       .catch(() => {
-        if (!controller.signal.aborted) setAuth({ status: "signed-out" });
+      if (!controller.signal.aborted) {
+        setAuth({
+          status: "signed-out",
+          message: "Could not check your admin session. Check your connection and try signing in again.",
+        });
+      }
       });
     return () => controller.abort();
   }, []);
@@ -278,7 +309,7 @@ export function AdminApplication({
   useEffect(() => {
     if (auth.status !== "signed-in") return;
     // Only re-fetch dashboard summary on revision increment if user is on overview page (or initial load)
-    if (page !== "overview" && dashboardSummary !== null) return;
+    if (page !== "overview" && hasDashboardSummary) return;
     const controller = new AbortController();
     cachedFetch("/api/admin/dashboard/summary", {
       signal: controller.signal,
@@ -299,7 +330,7 @@ export function AdminApplication({
       })
       .catch(() => {});
     return () => controller.abort();
-  }, [auth.status, dashboardSummaryRevision, page]);
+  }, [auth.status, dashboardSummaryRevision, hasDashboardSummary, page]);
 
   const recordAudit = useCallback(
     (action: string, target: string) => {
@@ -512,6 +543,8 @@ export function AdminApplication({
             onNavigate={navigate}
           />
         );
+      case "apiTraffic":
+        return permissions.includes("audit.view") || role === "super-admin" ? <ApiTrafficPage /> : <Denied />;
       case "team":
         return role === "super-admin" ? <AdminAccountManagement /> : <Denied />;
       case "activity":
@@ -557,7 +590,9 @@ export function AdminApplication({
   if (auth.status !== "signed-in")
     return (
       <SignIn
+        notice={auth.message}
         onAuthenticated={(admin) => {
+          setCacheSessionScope(admin.id || admin.email);
           setActorEmail(admin.email);
           setAuth({ status: "signed-in", admin });
           setPage(initialPatientId ? "patients" : initialPage);
@@ -596,6 +631,7 @@ export function AdminApplication({
         onPageChange={navigate}
         onSearchChange={setGlobalSearch}
         onSignOut={() => {
+          setCacheSessionScope(null);
           clearCache();
           void fetch("/api/auth/logout", { method: "POST" });
           setDashboardSummary(null);

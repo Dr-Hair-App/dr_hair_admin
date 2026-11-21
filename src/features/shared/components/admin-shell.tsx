@@ -2,6 +2,7 @@
 
 import {
   Bell,
+  Activity,
   CalendarDays,
   Flag,
   Gauge,
@@ -39,6 +40,7 @@ const pageLabels: Record<PageKey, string> = {
   team: "Admin users",
   activity: "Patient accounts",
   notifications: "Notifications",
+  apiTraffic: "API Traffic",
 };
 
 interface AdminShellProps {
@@ -278,6 +280,7 @@ export function AdminShell({
       subtitle:
         "Live clinical notifications, emergency consults, and system alerts",
     },
+    apiTraffic: { title: "API Traffic", subtitle: "Review Admin API request status, Worker time, and cache policy." },
   };
 
   const pageHeader = defaultPageHeaders[page] || {
@@ -316,6 +319,7 @@ export function AdminShell({
     if (key === "orders") return <Package size={19} strokeWidth={1.75} />;
     if (key === "team") return <ShieldCheck size={19} strokeWidth={1.75} />;
     if (key === "activity") return <UsersRound size={19} strokeWidth={1.75} />;
+    if (key === "apiTraffic") return <Activity size={19} strokeWidth={1.75} />;
     return <LayoutDashboard size={19} strokeWidth={1.75} />;
   };
 

@@ -27,8 +27,8 @@ process.env.NODE_ENV = 'development';
 
 const { TokenService } = await import('../../backend/src/shared/utils/token.service.js');
 
-export const BASE_URL = 'http://localhost:3001';
-export const BACKEND_URL = 'http://localhost:5001';
+export const BASE_URL = process.env.ADMIN_TEST_BASE_URL || 'http://localhost:3001';
+export const BACKEND_URL = process.env.BACKEND_TEST_URL || 'http://localhost:5001';
 
 export function getSuperAdminToken(customClaims = {}) {
   return TokenService.generateToken({

@@ -25,26 +25,27 @@ const tabs: { id: CommerceTab; label: string; icon: typeof Package }[] = [
 ];
 
 export function ProductManagement({ onToast, permissions, panelAccess, globalSearch, onAudit }: { onToast: (message: string) => void; permissions: AdminPermissionId[]; panelAccess: PanelFeatureAccess; globalSearch: string; onAudit: (action: string, target: string) => void }) {
-  const [activeTab, setActiveTab] = useState<CommerceTab>("overview");
-  const [createProductOpen, setCreateProductOpen] = useState(false);
-  const [products, setProducts] = useState<ProductRecord[]>([]);
-  const [coupons, setCoupons] = useState<CouponRecord[]>([]);
-  const [productsLoading, setProductsLoading] = useState(true);
-  const [productsError, setProductsError] = useState("");
-  const [couponsError, setCouponsError] = useState("");
-  const [couponsLoading, setCouponsLoading] = useState(true);
-  const [couponLoadAttempt, setCouponLoadAttempt] = useState(0);
-  const productsRequestRef = useRef<AbortController | null>(null);
   const canManageProducts = permissions.includes("products.manage") && panelAccess.catalog !== false;
   const canManageOrders = permissions.includes("orders.manage") && panelAccess.orders !== false;
   const canManagePromotions = permissions.includes("promotions.manage") && panelAccess.catalog !== false;
   const canViewCommerceReports = permissions.includes("orders.manage");
+  const [activeTab, setActiveTab] = useState<CommerceTab>("overview");
+  const [createProductOpen, setCreateProductOpen] = useState(false);
+  const [products, setProducts] = useState<ProductRecord[]>([]);
+  const [coupons, setCoupons] = useState<CouponRecord[]>([]);
+  const [productsLoading, setProductsLoading] = useState(canManageProducts);
+  const [productsError, setProductsError] = useState("");
+  const [couponsError, setCouponsError] = useState("");
+  const [couponsLoading, setCouponsLoading] = useState(canManagePromotions);
+  const [couponLoadAttempt, setCouponLoadAttempt] = useState(0);
+  const productsRequestRef = useRef<AbortController | null>(null);
   const availableTabs = useMemo(() => tabs.filter((tab) => tab.id === "overview" ? canViewCommerceReports
     : tab.id === "products" ? canManageProducts
     : tab.id === "orders" ? canManageOrders
     : canManagePromotions), [canManageOrders, canManageProducts, canManagePromotions, canViewCommerceReports]);
 
   useEffect(() => {
+    if (!canManagePromotions) return;
     const controller = new AbortController();
     void Promise.resolve().then(() => {
       if (controller.signal.aborted) return;
@@ -65,9 +66,10 @@ export function ProductManagement({ onToast, permissions, panelAccess, globalSea
       .finally(() => { if (!controller.signal.aborted) setCouponsLoading(false); });
     });
     return () => controller.abort();
-  }, [couponLoadAttempt]);
+  }, [canManagePromotions, couponLoadAttempt]);
 
   const refreshProducts = useCallback(() => {
+    if (!canManageProducts) return Promise.resolve();
     productsRequestRef.current?.abort();
     const controller = new AbortController();
     productsRequestRef.current = controller;
@@ -155,12 +157,13 @@ export function ProductManagement({ onToast, permissions, panelAccess, globalSea
         if (!controller.signal.aborted) setProductsError(error instanceof Error ? error.message : "Products could not be loaded.");
       })
       .finally(() => { if (!controller.signal.aborted) setProductsLoading(false); });
-  }, [setProducts]);
+  }, [canManageProducts, setProducts]);
 
   useEffect(() => {
+    if (!canManageProducts) return;
     void Promise.resolve().then(() => refreshProducts());
     return () => productsRequestRef.current?.abort();
-  }, [refreshProducts]);
+  }, [canManageProducts, refreshProducts]);
 
   const resolvedActiveTab = availableTabs.some((tab) => tab.id === activeTab) ? activeTab : availableTabs[0]?.id ?? "products";
   const tabLabel = tabs.find((tab) => tab.id === resolvedActiveTab)?.label ?? "Commerce";
@@ -176,7 +179,7 @@ export function ProductManagement({ onToast, permissions, panelAccess, globalSea
     <PageHeader
       eyebrow={resolvedActiveTab === "orders" ? "Commerce · Fulfilment & Payments" : "Commerce"}
       title={resolvedActiveTab === "overview" ? "Commerce Overview" : resolvedActiveTab === "orders" ? "Orders & Payments" : resolvedActiveTab === "coupons" ? "Offers" : "Products"}
-      description={resolvedActiveTab === "overview" ? "Revenue, orders, inventory health, and store analytics." : resolvedActiveTab === "orders" ? "Work through paid orders, shipping updates, customer refunds, and live Razorpay transactions." : resolvedActiveTab === "coupons" ? "Manage checkout promotions." : "Manage the product catalog."}
+      description={resolvedActiveTab === "overview" ? canManageProducts ? "Revenue, orders, inventory health, and store analytics." : "Revenue, payment trends, and order reporting for your clinic." : resolvedActiveTab === "orders" ? "Work through paid orders, shipping updates, customer refunds, and live Razorpay transactions." : resolvedActiveTab === "coupons" ? "Manage checkout promotions." : "Manage the product catalog."}
       action={resolvedActiveTab === "products" && canManageProducts ? <button className="button button-primary" onClick={() => setCreateProductOpen(true)}><Package size={14} />Add product</button> : undefined}
     />
     <SlidingTabList activeKey={resolvedActiveTab} className="commerce-tabs" label="Commerce sections">
@@ -188,7 +191,7 @@ export function ProductManagement({ onToast, permissions, panelAccess, globalSea
     {resolvedActiveTab === "coupons" && couponsError && <div className="notice" role="alert">{couponsError} <button type="button" className="text-action" onClick={() => setCouponLoadAttempt((attempt) => attempt + 1)}>Retry</button></div>}
     <div key={resolvedActiveTab} className="commerce-content tab-panel-transition" aria-label={`${tabLabel} section`}>
       {availableTabs.length === 0 && <div className="empty-state">No commerce sections are available for this account.</div>}
-      {resolvedActiveTab === "overview" && canViewCommerceReports && <CommerceOverview products={products} coupons={coupons} onNavigate={selectTab} />}
+      {resolvedActiveTab === "overview" && canViewCommerceReports && <CommerceOverview products={products} coupons={coupons} canViewProducts={canManageProducts} canViewPromotions={canManagePromotions} onNavigate={selectTab} />}
       {resolvedActiveTab === "products" && canManageProducts && <ProductsPanel products={products} onProductsChange={(updater) => { setProducts(updater); onAudit("updated product catalog", "Product records"); }} createProductOpen={createProductOpen} onCreateHandled={() => setCreateProductOpen(false)} onToast={onToast} onRefresh={refreshProducts} />}
       {resolvedActiveTab === "orders" && canManageOrders && <OrdersPage globalSearch={globalSearch} onToast={onToast} onAudit={onAudit} canExport={permissions.includes("commerce.export")} />}
       {resolvedActiveTab === "coupons" && canManagePromotions && <CouponsPanel coupons={coupons} products={products} onCouponsChange={(updater) => { setCoupons(updater); onAudit("updated commerce promotions", "Coupon records"); }} onToast={onToast} />}

@@ -1,7 +1,7 @@
 import { AdminApplication } from "@/features/shared/components/admin-application";
 import type { PageKey } from "@/features/shared/types";
 
-const pageKeys: PageKey[] = ["overview", "patients", "catalog", "content", "orders", "tests", "bookings", "team", "activity", "notifications"];
+const pageKeys: PageKey[] = ["overview", "patients", "catalog", "content", "orders", "tests", "bookings", "team", "activity", "notifications", "apiTraffic"];
 
 export default async function HomePage({ searchParams }: PageProps<"/">) {
   const { panel, date } = await searchParams;

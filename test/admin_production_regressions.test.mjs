@@ -17,6 +17,18 @@ describe("Admin production regression guards", () => {
     assert.doesNotMatch(page, /Firebase|MongoDB|Cloudflare|NMC|CGST|7 business days|7 working days|7-day|within 24 hours|offline clinical safe|purge cycle/i);
   });
 
+  it("explains that reports cannot be shared until malware scanning passes", async () => {
+    const page = await read("../src/features/operations/components/hair-tests-page.tsx");
+    assert.match(page, /Reports can stay private, but patient sharing is blocked until a clean scan is available/);
+  });
+
+  it("derives report patient names without synchronously resetting records in an effect", async () => {
+    const page = await read("../src/features/operations/components/hair-tests-page.tsx");
+    assert.match(page, /const recordsWithPatientNames = useMemo/);
+    assert.match(page, /patientsListRef\.current = live;\s*setPatientsList\(live\)/);
+    assert.doesNotMatch(page, /useEffect\(\(\) => \{\s*patientsListRef\.current = patientsList;[\s\S]{0,600}setRecords/);
+  });
+
   it("does not invent inventory for new or legacy products", async () => {
     const panel = await read("../src/features/commerce/components/products-panel.tsx");
     assert.match(panel, /stock:\s*0/);

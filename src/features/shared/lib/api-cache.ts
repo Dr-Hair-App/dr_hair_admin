@@ -1,3 +1,5 @@
+import { fetchWithoutAdminRequestCapture, recordAdminRequest } from "./admin-request-recorder.ts";
+
 /**
  * Client-side in-memory TTL and SWR (Stale-While-Revalidate) Cache Utility
  *
@@ -49,9 +51,31 @@ export const TTL_PROFILES = {
 
 // Module-level in-memory cache and in-flight request tracker
 const memoryCache = new Map<string, CacheEntry>();
-const inFlightRequests = new Map<string, Promise<Response>>();
+type InFlightRequest = {
+  key: string;
+  promise: Promise<Response>;
+  controller: AbortController;
+  consumers: number;
+  abortWhenUnobserved: boolean;
+  settled: boolean;
+};
+const inFlightRequests = new Map<string, InFlightRequest>();
 let cacheGeneration = 0;
 const cacheKeyGenerations = new Map<string, number>();
+let cacheSessionScope: string | null = null;
+
+/**
+ * Scopes cookie-authenticated requests to the verified admin identity. The
+ * session cookie is HttpOnly, so it cannot be used as a client-side cache key.
+ * Switching identities clears cached and in-flight responses before they can
+ * be reused by the next admin.
+ */
+export function setCacheSessionScope(scope: string | null): void {
+  const normalizedScope = scope?.trim() || null;
+  if (cacheSessionScope === normalizedScope) return;
+  cacheSessionScope = normalizedScope;
+  clearCache();
+}
 
 /**
  * Resolves appropriate TTL based on URL pattern matching or explicit override.
@@ -90,7 +114,12 @@ function getCacheKey(url: string, init?: RequestInit): string {
     authHash ^= authorization.charCodeAt(index);
     authHash = Math.imul(authHash, 16777619);
   }
-  const scope = authorization ? `auth-${authorization.length}-${authHash >>> 0}` : "public";
+  const credentials = init?.credentials || "same-origin";
+  const scope = authorization
+    ? `auth-${authorization.length}-${authHash >>> 0}`
+    : credentials === "omit"
+      ? "public"
+      : `session-${encodeURIComponent(cacheSessionScope || "unauthenticated")}`;
   return `${method}:${scope}:${url}`;
 }
 
@@ -111,35 +140,94 @@ function createResponseFromEntry(entry: CacheEntry, isStale = false): Response {
   });
 }
 
-/** Lets each consumer cancel its wait without cancelling a shared GET. */
+/** Lets each caller leave a shared GET and cancels it once no caller remains. */
 function responseForCaller(
-  request: Promise<Response>,
+  request: InFlightRequest,
   signal?: AbortSignal
 ): Promise<Response> {
-  if (!signal) return request.then((response) => response.clone());
-  if (signal.aborted) {
+  if (signal?.aborted) {
     const error = new Error("The operation was aborted.");
     error.name = "AbortError";
     return Promise.reject(error);
   }
+  request.consumers += 1;
   return new Promise((resolve, reject) => {
+    let finished = false;
+    const release = () => {
+      request.consumers = Math.max(0, request.consumers - 1);
+      if (
+        request.consumers === 0 &&
+        request.abortWhenUnobserved &&
+        !request.settled
+      ) {
+        if (inFlightRequests.get(request.key) === request) {
+          cacheKeyGenerations.set(
+            request.key,
+            (cacheKeyGenerations.get(request.key) || 0) + 1,
+          );
+          inFlightRequests.delete(request.key);
+        }
+        request.controller.abort();
+      }
+    };
+    const finish = (callback: () => void) => {
+      if (finished) return;
+      finished = true;
+      signal?.removeEventListener("abort", onAbort);
+      release();
+      callback();
+    };
     const onAbort = () => {
       const error = new Error("The operation was aborted.");
       error.name = "AbortError";
-      reject(error);
+      finish(() => reject(error));
     };
-    signal.addEventListener("abort", onAbort, { once: true });
-    request.then(
+    signal?.addEventListener("abort", onAbort, { once: true });
+    request.promise.then(
       (response) => {
-        signal.removeEventListener("abort", onAbort);
-        resolve(response.clone());
+        finish(() => resolve(response.clone()));
       },
       (error) => {
-        signal.removeEventListener("abort", onAbort);
-        reject(error);
+        finish(() => reject(error));
       }
     );
   });
+}
+
+function startInFlightRequest(
+  url: string,
+  init: RequestInit | undefined,
+  ttlMs: number,
+  swrMs: number,
+  requestGeneration: number,
+  requestKeyGeneration: number,
+  abortWhenUnobserved: boolean,
+): InFlightRequest {
+  const key = getCacheKey(url, init);
+  const controller = new AbortController();
+  const promise = fetchAndCache(
+    url,
+    { ...init, signal: controller.signal },
+    ttlMs,
+    swrMs,
+    requestGeneration,
+    requestKeyGeneration,
+  );
+  const request: InFlightRequest = {
+    key,
+    promise,
+    controller,
+    consumers: 0,
+    abortWhenUnobserved,
+    settled: false,
+  };
+  inFlightRequests.set(key, request);
+  const settle = () => {
+    request.settled = true;
+    if (inFlightRequests.get(key) === request) inFlightRequests.delete(key);
+  };
+  void request.promise.then(settle, settle);
+  return request;
 }
 
 /**
@@ -154,7 +242,7 @@ async function fetchAndCache(
   requestKeyGeneration: number
 ): Promise<Response> {
   const cacheKey = getCacheKey(url, init);
-  const response = await fetch(url, init);
+  const response = await fetchWithoutAdminRequestCapture(url, init);
 
   // Only cache successful GET responses
   const method = (init?.method || "GET").toUpperCase();
@@ -213,16 +301,37 @@ export async function cachedFetch(
   ttlMs?: number,
   options?: CachedFetchOptions
 ): Promise<Response> {
+  if (init?.signal?.aborted) {
+    const error = new Error("The operation was aborted.");
+    error.name = "AbortError";
+    throw error;
+  }
   const method = (init?.method || "GET").toUpperCase();
   const cacheKey = getCacheKey(url, init);
+  const startedAt = performance.now();
+  const record = (response: Response | null, cacheOutcome: "miss" | "hit" | "stale" | "coalesced" | "refresh" | "mutation" | "error") => {
+    recordAdminRequest({
+      url,
+      method,
+      status: response?.status ?? null,
+      durationMs: performance.now() - startedAt,
+      cacheOutcome,
+    });
+  };
 
   // If this is a mutating request, bypass cache, invalidate matching entries, and execute
   if (method !== "GET" && method !== "HEAD") {
-    const res = await fetch(url, init);
-    // Invalidate URL path base
-    const pathOnly = url.split("?")[0];
-    invalidateCache(pathOnly);
-    return res;
+    try {
+      const res = await fetchWithoutAdminRequestCapture(url, init);
+      // Invalidate URL path base
+      const pathOnly = url.split("?")[0];
+      invalidateCache(pathOnly);
+      record(res, "mutation");
+      return res;
+    } catch (error) {
+      record(null, "error");
+      throw error;
+    }
   }
 
   const effectiveTtl = resolveTtl(url, ttlMs ?? options?.ttlMs);
@@ -243,6 +352,7 @@ export async function cachedFetch(
   if (cached && !forceRefresh) {
     const age = now - cached.timestamp;
     if (age < cached.ttlMs) {
+      record(createResponseFromEntry(cached, false), "hit");
       return createResponseFromEntry(cached, false);
     }
 
@@ -250,55 +360,58 @@ export async function cachedFetch(
     if (allowSwr && age < cached.ttlMs + cached.swrMs) {
       // Trigger background revalidation if not already in-flight
       if (!inFlightRequests.has(cacheKey)) {
-        const revalidatePromise = fetchAndCache(
+        const revalidateRequest = startInFlightRequest(
           url,
           networkInit,
           effectiveTtl,
           effectiveSwr,
           requestGeneration,
-          requestKeyGeneration
+          requestKeyGeneration,
+          false,
         );
-        inFlightRequests.set(cacheKey, revalidatePromise);
-        void revalidatePromise.catch(() => {
+        void revalidateRequest.promise.catch(() => {
           // Silently suppress background revalidation errors
-        }).finally(() => {
-            if (inFlightRequests.get(cacheKey) === revalidatePromise) {
-              inFlightRequests.delete(cacheKey);
-            }
-          });
+        });
         // We do not await revalidation here — return stale immediately
-        void revalidatePromise;
+        void revalidateRequest.promise;
       }
-      return createResponseFromEntry(cached, true);
+      const response = createResponseFromEntry(cached, true);
+      record(response, "stale");
+      return response;
     }
   }
 
   // 3. Coalesce in-flight requests to prevent duplicate network calls
   const existingInFlight = inFlightRequests.get(cacheKey);
   if (existingInFlight && !forceRefresh) {
-    return responseForCaller(existingInFlight, init?.signal);
+    try {
+      const response = await responseForCaller(existingInFlight, init?.signal);
+      record(response, "coalesced");
+      return response;
+    } catch (error) {
+      record(null, "error");
+      throw error;
+    }
   }
 
   // 4. Cache miss or expired — initiate network fetch
-  const fetchPromise = (async () => {
-    try {
-      return await fetchAndCache(
-        url,
-        networkInit,
-        effectiveTtl,
-        effectiveSwr,
-        requestGeneration,
-        requestKeyGeneration
-      );
-    } finally {
-      if (inFlightRequests.get(cacheKey) === fetchPromise) {
-        inFlightRequests.delete(cacheKey);
-      }
-    }
-  })();
-
-  inFlightRequests.set(cacheKey, fetchPromise);
-  return responseForCaller(fetchPromise, init?.signal);
+  const fetchRequest = startInFlightRequest(
+    url,
+    networkInit,
+    effectiveTtl,
+    effectiveSwr,
+    requestGeneration,
+    requestKeyGeneration,
+    true,
+  );
+  try {
+    const response = await responseForCaller(fetchRequest, init?.signal);
+    record(response, forceRefresh ? "refresh" : "miss");
+    return response;
+  } catch (error) {
+    record(null, "error");
+    throw error;
+  }
 }
 
 /**
@@ -348,6 +461,9 @@ export function invalidateCache(pattern?: string | RegExp): void {
  */
 export function clearCache(): void {
   cacheGeneration += 1;
+  for (const request of inFlightRequests.values()) {
+    request.controller.abort();
+  }
   memoryCache.clear();
   inFlightRequests.clear();
   cacheKeyGenerations.clear();

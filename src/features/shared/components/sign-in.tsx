@@ -14,7 +14,7 @@ export type AdminIdentity = {
   permissions?: string[] | null;
 };
 
-export function SignIn({ onAuthenticated }: { onAuthenticated: (admin: AdminIdentity) => void }) {
+export function SignIn({ onAuthenticated, notice }: { onAuthenticated: (admin: AdminIdentity) => void; notice?: string }) {
   const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -128,6 +128,7 @@ export function SignIn({ onAuthenticated }: { onAuthenticated: (admin: AdminIden
             </label>
 
             {error && <p className="signin-error" role="alert">{error}</p>}
+            {!error && notice && <p className="signin-error" role="status">{notice}</p>}
 
             <button
               disabled={busy}

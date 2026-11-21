@@ -1,0 +1,19 @@
+import { cookies } from "next/headers";
+import { ADMIN_SESSION_COOKIE, backendUrl, noStoreJson, readJson } from "@/app/api/_lib/backend";
+
+export async function GET(request: Request) {
+  const token = (await cookies()).get(ADMIN_SESSION_COOKIE)?.value;
+  if (!token) return noStoreJson({ message: "Sign in to view API traffic." }, 401);
+
+  const { searchParams } = new URL(request.url);
+  const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+  try {
+    const upstream = await fetch(backendUrl(`/api/v1/admin/api-traffic${query}`), {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+      cache: "no-store",
+    });
+    return noStoreJson(await readJson(upstream), upstream.status);
+  } catch {
+    return noStoreJson({ message: "API traffic history is temporarily unavailable." }, 503);
+  }
+}
