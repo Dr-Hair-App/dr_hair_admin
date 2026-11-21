@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity, ArrowRight, BadgeIndianRupee, Boxes, Check, CreditCard, Download,
-  Filter, MapPin, PackageCheck, RefreshCw, ShieldAlert, Truck, Undo2, UserRound,
+  Activity, ArrowRight, BadgeIndianRupee, Boxes, Check, CheckCircle2, CircleX, CreditCard, Download,
+  Filter, ListFilter, MapPin, PackageCheck, PackagePlus, RefreshCw, ShieldAlert, Truck, Undo2, UserRound,
 } from "lucide-react";
 import { Avatar, Modal, StatusPill, TableToolbar } from "../../shared/components/ui";
-import { SlidingTabList } from "../../shared/components/sliding-tab-list";
+import { AdminTab, AdminTabBar } from "../../shared/components/admin-tab-bar";
 import { formatCurrency } from "../../commerce/lib/format";
 import type { OrderFulfillmentStatus, OrderPaymentStatus, OrderRecord } from "../../shared/types";
 import { ReceivedPaymentsPanel } from "./received-payments-panel";
@@ -15,6 +15,16 @@ import { cachedFetch } from "../../shared/lib/api-cache";
 type QueueTab = "All orders" | "New" | "Preparing" | "Shipped" | "Needs attention" | "Returns" | "Delivered" | "Cancelled & refunded";
 type OrderDateFilter = "All dates" | "Last 7 days" | "Last 30 days";
 const queueTabs: QueueTab[] = ["All orders", "New", "Preparing", "Shipped", "Needs attention", "Returns", "Delivered", "Cancelled & refunded"];
+const queueTabIcons: Record<QueueTab, typeof ListFilter> = {
+  "All orders": ListFilter,
+  New: PackagePlus,
+  Preparing: Boxes,
+  Shipped: Truck,
+  "Needs attention": ShieldAlert,
+  Returns: Undo2,
+  Delivered: CheckCircle2,
+  "Cancelled & refunded": CircleX,
+};
 
 interface BackendOrder {
   order_id?: string;
@@ -589,28 +599,24 @@ export function OrdersPage({ globalSearch, onToast, onAudit = () => {}, canExpor
 
   return <div className="page-wrap w-full min-w-0">
     <div className="order-tab-toolbar">
-      <SlidingTabList activeKey={topTab} indicatorVariant="underline" className="order-main-tabs" label="Order workspaces">
-      <button
-        type="button"
-        role="tab"
+      <AdminTabBar activeKey={topTab} className="order-main-tabs admin-tab-bar--wide" label="Order workspaces">
+      <AdminTab
+        label="Orders & Fulfilment"
+        icon={PackageCheck}
         aria-selected={topTab === "orders"}
         aria-controls="orders-fulfilment-panel"
-        className="order-main-tab"
+        className="order-main-tab admin-tab--grow"
         onClick={() => setTopTab("orders")}
-      >
-        <PackageCheck size={15} /><span>Orders &amp; Fulfilment</span>
-      </button>
-      <button
-        type="button"
-        role="tab"
+      />
+      <AdminTab
+        label="Received Payments (Razorpay)"
+        icon={CreditCard}
         aria-selected={topTab === "payments"}
         aria-controls="orders-payments-panel"
-        className="order-main-tab"
+        className="order-main-tab admin-tab--grow"
         onClick={() => setTopTab("payments")}
-      >
-        <CreditCard size={15} /><span>Received Payments (Razorpay)</span>
-      </button>
-      </SlidingTabList>
+      />
+      </AdminTabBar>
       {topTab === "orders" && <div className="flex flex-wrap gap-2 justify-end">{canExport && <button className="button button-secondary order-export-button" onClick={exportCsv}><Download size={14} />Export filtered CSV</button>}<button type="button" className="button button-secondary order-export-button" onClick={() => void reloadOrders()} disabled={ordersLoading}><RefreshCw size={14} className={ordersLoading ? "animate-spin" : ""} />Refresh orders</button></div>}
     </div>
 
@@ -631,7 +637,7 @@ export function OrdersPage({ globalSearch, onToast, onAudit = () => {}, canExpor
 
         <section className="card order-workspace-card">
           <div className="order-workspace-heading"><div><h2 className="card-title">Fulfilment queue</h2><p className="card-note">Select a queue to focus the work that needs doing next.</p></div><span className="small-caption">{normalizedOrders.length} orders</span></div>
-          <div className="order-queue-tabs" role="tablist" aria-label="Filter orders by fulfilment status">{queueTabs.map((queue) => <button key={queue} role="tab" aria-selected={tab === queue} className={tab === queue ? "selected" : ""} onClick={() => setTab(queue)}>{queue}<span>{counts[queue]}</span></button>)}</div>
+          <AdminTabBar activeKey={tab} className="order-queue-tabs admin-tab-bar--wide" label="Filter orders by fulfilment status">{queueTabs.map((queue) => <AdminTab key={queue} label={queue} icon={queueTabIcons[queue]} aria-selected={tab === queue} onClick={() => setTab(queue)} className="admin-tab--grow" badge={counts[queue]} />)}</AdminTabBar>
           <TableToolbar value={query} onChange={setQuery} placeholder="Search order, customer, product, coupon, or tracking..." right={<div className="order-filter-controls">
             <select className="period-select" aria-label="Filter by payment" value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)}><option>Any payment</option><option>Paid</option><option>Pending</option><option>Failed</option><option>Partially refunded</option><option>Refunded</option></select>
             <select className="period-select" aria-label="Filter orders by date" value={dateFilter} onChange={(event) => changeDateFilter(event.target.value as OrderDateFilter)}><option>All dates</option><option>Last 7 days</option><option>Last 30 days</option></select>

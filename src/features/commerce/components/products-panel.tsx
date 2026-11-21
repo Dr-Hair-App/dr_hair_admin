@@ -34,6 +34,7 @@ import {
   X,
 } from "lucide-react";
 import { Modal, StatusPill } from "../../shared/components/ui";
+import { AdminTab, AdminTabBar } from "../../shared/components/admin-tab-bar";
 import { FullSizeImageViewer, type ViewerImage } from "../../shared/components/full-size-image-viewer";
 import { formatCurrency } from "../lib/format";
 import { prepareSmartImage } from "../../shared/lib/smart-image-upload";
@@ -1615,74 +1616,12 @@ function ProductEditor({
       >
         {/* Step-by-Step Stepper Navigation */}
         <div className="product-stepper-container">
-          <div className="product-editor-nav" role="tablist" aria-label="Product wizard steps">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === "general"}
-              className={`product-editor-tab ${activeTab === "general" ? "active" : ""}`}
-              onClick={() => setActiveTab("general")}
-            >
-              <Package size={14} />
-              <span className="hidden sm:inline">01 · Basics & Category</span>
-              <span className="sm:hidden max-[380px]:hidden">1. Basics</span>
-              <span className="hidden max-[380px]:inline">1</span>
-              {isStep1Valid ? (
-                <span className="tab-badge" title="Basics completed">✓</span>
-              ) : (
-                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" title="Required fields needed" />
-              )}
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === "pricing"}
-              className={`product-editor-tab ${activeTab === "pricing" ? "active" : ""}`}
-              onClick={() => setActiveTab("pricing")}
-            >
-              <Boxes size={14} />
-              <span className="hidden sm:inline">02 · Pricing & Shipping</span>
-              <span className="sm:hidden max-[380px]:hidden">2. Pricing</span>
-              <span className="hidden max-[380px]:inline">2</span>
-              {isStep2Valid ? (
-                <span className="tab-badge" title="Pricing completed">₹{leadPrice}</span>
-              ) : (
-                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" title="Required pricing needed" />
-              )}
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === "media"}
-              className={`product-editor-tab ${activeTab === "media" ? "active" : ""}`}
-              onClick={() => setActiveTab("media")}
-            >
-              <ImagePlus size={14} />
-              <span className="hidden sm:inline">03 · Photos & Gallery</span>
-              <span className="sm:hidden max-[380px]:hidden">3. Photos</span>
-              <span className="hidden max-[380px]:inline">3</span>
-              <span className="tab-badge">
-                {isUploading ? <Loader2 size={10} className="animate-spin" /> : form.media.length}
-              </span>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === "clinical"}
-              className={`product-editor-tab ${activeTab === "clinical" ? "active" : ""}`}
-              onClick={() => setActiveTab("clinical")}
-            >
-              <BadgeCheck size={14} />
-              <span className="hidden sm:inline">04 · Clinical & How to Use</span>
-              <span className="sm:hidden max-[380px]:hidden">4. Clinical</span>
-              <span className="hidden max-[380px]:inline">4</span>
-              {((form.benefits?.length || 0) + (form.ingredients?.length || 0) > 0) && (
-                <span className="tab-badge">
-                  {(form.benefits?.length || 0) + (form.ingredients?.length || 0)}
-                </span>
-              )}
-            </button>
-          </div>
+          <AdminTabBar activeKey={activeTab} className="product-editor-nav admin-tab-bar--wide" label="Product wizard steps">
+            <AdminTab label="01 · Basics & Category" icon={Package} aria-selected={activeTab === "general"} className="product-editor-tab admin-tab--grow" onClick={() => setActiveTab("general")} suffix={isStep1Valid ? <span className="tab-badge" title="Basics completed">✓</span> : <span className="admin-tab-required-dot" title="Required fields needed" />} />
+            <AdminTab label="02 · Pricing & Shipping" icon={Boxes} aria-selected={activeTab === "pricing"} className="product-editor-tab admin-tab--grow" onClick={() => setActiveTab("pricing")} suffix={isStep2Valid ? <span className="tab-badge" title="Pricing completed">₹{leadPrice}</span> : <span className="admin-tab-required-dot" title="Required pricing needed" />} />
+            <AdminTab label="03 · Photos & Gallery" icon={ImagePlus} aria-selected={activeTab === "media"} className="product-editor-tab admin-tab--grow" onClick={() => setActiveTab("media")} suffix={<span className="tab-badge">{isUploading ? <Loader2 size={10} className="animate-spin" /> : form.media.length}</span>} />
+            <AdminTab label="04 · Clinical & How to Use" icon={BadgeCheck} aria-selected={activeTab === "clinical"} className="product-editor-tab admin-tab--grow" onClick={() => setActiveTab("clinical")} suffix={((form.benefits?.length || 0) + (form.ingredients?.length || 0)) > 0 ? <span className="tab-badge">{(form.benefits?.length || 0) + (form.ingredients?.length || 0)}</span> : undefined} />
+          </AdminTabBar>
 
           {/* Animated Stepper Progress Bar */}
           <div className="product-stepper-progress-bg">

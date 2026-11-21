@@ -332,7 +332,7 @@ describe("Admin audit UI regressions (mocked API only)", () => {
     const { context, page, pageErrors } = await newAdminPage("/content");
     try {
       const homeTab = page.getByRole("tab", { name: "Home screen" });
-      const homeLabel = homeTab.locator(".app-management-tab-label");
+      const homeLabel = homeTab.locator(".admin-tab-label");
       await page.setViewportSize({ width: 320, height: 720 });
       await homeTab.waitFor({ state: "visible" });
       assert.equal(await homeLabel.isVisible(), false, "narrow mobile should hide the tab text");
@@ -342,6 +342,14 @@ describe("Admin audit UI regressions (mocked API only)", () => {
       assert.equal(await homeLabel.isVisible(), false, "mobile should hide the tab text");
       assert.equal(await homeTab.getAttribute("aria-label"), "Home screen", "icon-only tabs keep an accessible name");
       assert.equal(await homeTab.locator("svg").isVisible(), true, "mobile should keep the tab icon visible");
+      const mobileBar = await page.getByRole("tablist", { name: "App management sections" }).evaluate((element) => {
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return { radius: style.borderRadius, right: rect.right, viewport: innerWidth, left: rect.left };
+      });
+      assert.equal(mobileBar.radius, "999px", "mobile tab bar should have fully rounded corners");
+      assert.ok(mobileBar.right <= mobileBar.viewport, "tab bar should not overflow past the mobile viewport");
+      assert.ok(mobileBar.left >= 0, "tab bar should keep its left spacing inside the viewport");
 
       await page.setViewportSize({ width: 1280, height: 800 });
       assert.equal(await homeLabel.isVisible(), true, "desktop should show the tab text");

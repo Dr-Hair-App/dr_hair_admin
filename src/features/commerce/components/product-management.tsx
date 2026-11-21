@@ -3,7 +3,7 @@
 import { BadgePercent, Package, ShoppingBag, TrendingUp } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "../../shared/components/ui";
-import { SlidingTabList } from "../../shared/components/sliding-tab-list";
+import { AdminTab, AdminTabBar } from "../../shared/components/admin-tab-bar";
 import type { CouponRecord, ProductRecord, ProductStatus, ProductBenefit, ProductIngredient, ProductUsageStep, ProductClinicalClaim } from "../types";
 import { CouponsPanel } from "./coupons-panel";
 import { CommerceOverview } from "./commerce-overview";
@@ -182,9 +182,9 @@ export function ProductManagement({ onToast, permissions, panelAccess, globalSea
       description={resolvedActiveTab === "overview" ? canManageProducts ? "Revenue, orders, inventory health, and store analytics." : "Revenue, payment trends, and order reporting for your clinic." : resolvedActiveTab === "orders" ? "Work through paid orders, shipping updates, customer refunds, and live Razorpay transactions." : resolvedActiveTab === "coupons" ? "Manage checkout promotions." : "Manage the product catalog."}
       action={resolvedActiveTab === "products" && canManageProducts ? <button className="button button-primary" onClick={() => setCreateProductOpen(true)}><Package size={14} />Add product</button> : undefined}
     />
-    <SlidingTabList activeKey={resolvedActiveTab} className="commerce-tabs" label="Commerce sections">
-      {availableTabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={resolvedActiveTab === id} className={`commerce-tab ${resolvedActiveTab === id ? "selected" : ""}`} onClick={() => selectTab(id)}><Icon size={15} />{label}{id === "products" && <span>{products.length}</span>}</button>)}
-    </SlidingTabList>
+    <AdminTabBar activeKey={resolvedActiveTab} className="commerce-section-tabs admin-tab-bar--wide" label="Commerce sections">
+      {availableTabs.map(({ id, label, icon: Icon }) => <AdminTab key={id} label={label} icon={Icon} aria-selected={resolvedActiveTab === id} onClick={() => selectTab(id)} className="admin-tab--grow" badge={id === "products" ? products.length : undefined} />)}
+    </AdminTabBar>
     {resolvedActiveTab === "products" && productsError && <div className="notice" role="alert">{productsError} <button type="button" className="text-action" onClick={() => void refreshProducts()}>Retry</button></div>}
     {resolvedActiveTab === "products" && productsLoading && products.length === 0 && <div className="notice" role="status">Loading products from the catalog…</div>}
     {resolvedActiveTab === "coupons" && couponsLoading && coupons.length === 0 && <div className="notice" role="status">Loading coupons…</div>}

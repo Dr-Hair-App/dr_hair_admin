@@ -1,16 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState, type HTMLAttributes, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
+import type { LucideIcon } from "lucide-react";
 
-type SlidingTabListProps = HTMLAttributes<HTMLDivElement> & {
+type AdminTabBarProps = HTMLAttributes<HTMLDivElement> & {
   activeKey: string;
   label: string;
   children: ReactNode;
-  indicatorVariant?: "pill" | "underline";
 };
 
-/** A measured, accessible tab list with a single animated selection pill and keyboard navigation. */
-export function SlidingTabList({ activeKey, label, children, className = "", indicatorVariant = "pill", onKeyDown, ...props }: SlidingTabListProps) {
+/** Shared, accessible tab list with an animated selection pill and arrow-key navigation. */
+export function AdminTabBar({ activeKey, label, children, className = "", onKeyDown, ...props }: AdminTabBarProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const [indicator, setIndicator] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
 
@@ -30,11 +30,9 @@ export function SlidingTabList({ activeKey, label, children, className = "", ind
         const selectedRect = selected.getBoundingClientRect();
         setIndicator({
           left: selectedRect.left - listRect.left - list.clientLeft + list.scrollLeft,
-          top: indicatorVariant === "underline"
-            ? selectedRect.bottom - listRect.top - list.clientTop - 2 + list.scrollTop
-            : selectedRect.top - listRect.top - list.clientTop + list.scrollTop,
+          top: selectedRect.top - listRect.top - list.clientTop + list.scrollTop,
           width: selectedRect.width,
-          height: indicatorVariant === "underline" ? 2 : selectedRect.height,
+          height: selectedRect.height,
         });
       });
     };
@@ -48,7 +46,7 @@ export function SlidingTabList({ activeKey, label, children, className = "", ind
       observer?.disconnect();
       window.removeEventListener("resize", measure);
     };
-  }, [activeKey, children, indicatorVariant]);
+  }, [activeKey, children]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     onKeyDown?.(event);
@@ -59,15 +57,10 @@ export function SlidingTabList({ activeKey, label, children, className = "", ind
     if (currentIndex === -1) return;
 
     let targetIndex = -1;
-    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
-      targetIndex = (currentIndex + 1) % tabs.length;
-    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
-      targetIndex = (currentIndex - 1 + tabs.length) % tabs.length;
-    } else if (event.key === "Home") {
-      targetIndex = 0;
-    } else if (event.key === "End") {
-      targetIndex = tabs.length - 1;
-    }
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") targetIndex = (currentIndex + 1) % tabs.length;
+    else if (event.key === "ArrowLeft" || event.key === "ArrowUp") targetIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+    else if (event.key === "Home") targetIndex = 0;
+    else if (event.key === "End") targetIndex = tabs.length - 1;
 
     if (targetIndex !== -1) {
       event.preventDefault();
@@ -83,15 +76,44 @@ export function SlidingTabList({ activeKey, label, children, className = "", ind
       ref={listRef}
       role="tablist"
       aria-label={label}
+      aria-orientation="horizontal"
       onKeyDown={handleKeyDown}
-      className={`sliding-tabs ${className}`.trim()}
+      className={`admin-tab-bar ${className}`.trim()}
     >
       <span
         aria-hidden="true"
-        className={`sliding-tab-indicator${indicatorVariant === "underline" ? " is-underline" : ""}${indicator ? " is-ready" : ""}`}
+        className={`admin-tab-indicator${indicator ? " is-ready" : ""}`}
         style={indicator ? { width: indicator.width, height: indicator.height, transform: `translate3d(${indicator.left}px, ${indicator.top}px, 0)` } : undefined}
       />
       {children}
     </div>
+  );
+}
+
+type AdminTabProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children"> & {
+  label: string;
+  icon: LucideIcon;
+  badge?: ReactNode;
+  badgeClassName?: string;
+  suffix?: ReactNode;
+  compactOnMobile?: boolean;
+};
+
+/** Shared tab button; keeps its label available to assistive technology when visually compact. */
+export function AdminTab({ label, icon: Icon, badge, badgeClassName = "", suffix, compactOnMobile = true, className = "", type = "button", title, ...props }: AdminTabProps) {
+  return (
+    <button
+      {...props}
+      type={type}
+      role="tab"
+      aria-label={props["aria-label"] ?? label}
+      title={title ?? label}
+      className={`admin-tab${compactOnMobile ? " admin-tab--compact-mobile" : ""} ${className}`.trim()}
+    >
+      <Icon size={17} aria-hidden="true" />
+      <span className="admin-tab-label">{label}</span>
+      {badge !== undefined && <span className={`admin-tab-badge ${badgeClassName}`.trim()}>{badge}</span>}
+      {suffix}
+    </button>
   );
 }

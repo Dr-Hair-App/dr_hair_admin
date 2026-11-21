@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  CalendarClock,
+  ShoppingBag,
   ShieldAlert,
   Trash2,
   Lock,
@@ -8,11 +10,12 @@ import {
   ExternalLink,
   AlertTriangle,
   RefreshCw,
+  UsersRound,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Avatar, PageHeader, TableToolbar, Modal } from "../../shared/components/ui";
-import { SlidingTabList } from "../../shared/components/sliding-tab-list";
+import { AdminTab, AdminTabBar } from "../../shared/components/admin-tab-bar";
 import type { Role } from "../../shared/types";
 import { cachedFetch, TTL_PROFILES } from "../../shared/lib/api-cache";
 
@@ -33,10 +36,10 @@ export interface LoginUserRecord {
 
 type PatientSegment = "accounts_assessments" | "product_customers" | "appointment_treatment";
 type SegmentSummary = Record<PatientSegment, { total: number; assessed?: number; not_assessed?: number; active_within_days?: number }>;
-const patientSegments: { id: PatientSegment; label: string; detail: string }[] = [
-  { id: "accounts_assessments", label: "Accounts & assessments", detail: "Registered patients and assessment progress" },
-  { id: "product_customers", label: "Active product customers", detail: "Paid order + recent app login; product use itself is not tracked" },
-  { id: "appointment_treatment", label: "Appointments & treatment", detail: "Booked appointment plus treatment record" },
+const patientSegments: { id: PatientSegment; label: string; detail: string; icon: typeof UsersRound }[] = [
+  { id: "accounts_assessments", label: "Accounts & assessments", detail: "Registered patients and assessment progress", icon: UsersRound },
+  { id: "product_customers", label: "Active product customers", detail: "Paid order + recent app login; product use itself is not tracked", icon: ShoppingBag },
+  { id: "appointment_treatment", label: "Appointments & treatment", detail: "Booked appointment plus treatment record", icon: CalendarClock },
 ];
 
 export function PatientAccountManagement({
@@ -297,25 +300,23 @@ export function PatientAccountManagement({
             </div>
           </div>
 
-          <SlidingTabList activeKey={selectedSegment} indicatorVariant="underline" className="patient-segment-tabs" label="Patient segments">
+          <AdminTabBar activeKey={selectedSegment} className="patient-segment-tabs admin-tab-bar--wide" label="Patient segments">
             {patientSegments.map((segment) => {
               const isSelected = selectedSegment === segment.id;
               const summary = segmentSummary?.[segment.id];
-              return <button
+              return <AdminTab
                 key={segment.id}
-                type="button"
-                role="tab"
+                label={segment.label}
+                icon={segment.icon}
                 id={`patient-segment-tab-${segment.id}`}
                 aria-controls="patient-segment-panel"
                 aria-selected={isSelected}
                 onClick={() => { setSelectedSegment(segment.id); setUserPage(1); }}
-                className={`commerce-tab patient-segment-tab ${isSelected ? "selected" : ""}`}
-              >
-                {segment.label}
-                <span className="patient-segment-count">{summary ? summary.total.toLocaleString("en-IN") : "—"}</span>
-              </button>;
+                className="admin-tab--grow patient-segment-tab"
+                badge={summary ? summary.total.toLocaleString("en-IN") : "—"}
+              />;
             })}
-          </SlidingTabList>
+          </AdminTabBar>
 
           <div className="patient-segment-summary" aria-live="polite">
             <span>{activeSegment?.detail}</span>
