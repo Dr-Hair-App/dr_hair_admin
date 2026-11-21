@@ -9,7 +9,7 @@ export async function GET() {
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
       cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Appointment billing settings are temporarily unavailable." }, 503);
   }
@@ -35,7 +35,7 @@ export async function PUT(request: Request) {
       body: JSON.stringify(body),
       cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Could not update appointment billing settings." }, 503);
   }

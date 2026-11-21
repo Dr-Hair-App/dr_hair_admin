@@ -9,7 +9,7 @@ export async function GET() {
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
       cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Patient segments are temporarily unavailable." }, 503);
   }

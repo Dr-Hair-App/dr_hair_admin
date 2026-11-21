@@ -24,7 +24,7 @@ export async function DELETE(
       },
       cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Admin account could not be removed. Try again." }, 503);
   }

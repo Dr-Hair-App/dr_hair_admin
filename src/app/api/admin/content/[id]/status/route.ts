@@ -24,7 +24,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
       body: JSON.stringify(body),
       cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "App content service is temporarily unavailable." }, 503);
   }

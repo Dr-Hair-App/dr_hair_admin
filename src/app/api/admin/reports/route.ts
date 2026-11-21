@@ -17,7 +17,7 @@ export async function GET() {
       },
       cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Clinical reports service is temporarily unavailable." }, 503);
   }

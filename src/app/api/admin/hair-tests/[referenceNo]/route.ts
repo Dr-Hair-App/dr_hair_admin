@@ -23,7 +23,7 @@ export async function GET(request: Request, { params }: RouteContext) {
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
       cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Assessment is temporarily unavailable." }, 503);
   }
@@ -50,7 +50,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
       body: JSON.stringify(body),
       cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Assessment could not be updated." }, 503);
   }

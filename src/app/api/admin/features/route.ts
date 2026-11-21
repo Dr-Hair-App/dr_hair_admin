@@ -21,7 +21,7 @@ export async function GET(request: Request) {
     if (upstream.ok) {
       return cacheableJson(data, 60, 300, upstream.status);
     }
-    return noStoreJson(data, upstream.status);
+    return noStoreJson(data, upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Feature flags are temporarily unavailable." }, 503);
   }

@@ -9,6 +9,6 @@ export async function DELETE(_request: Request, { params }: RouteContext) {
   const { date } = await params;
   try {
     const upstream = await fetch(backendUrl(`/api/v1/admin/appointments/closed-dates/${encodeURIComponent(date)}`), { method: "DELETE", headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, cache: "no-store" });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch { return noStoreJson({ message: "Clinic date could not be reopened." }, 503); }
 }

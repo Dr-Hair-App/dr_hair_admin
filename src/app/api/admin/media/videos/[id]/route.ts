@@ -21,7 +21,7 @@ export async function DELETE(_request: Request, { params }: RouteContext) {
         cache: "no-store",
       }
     );
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Video could not be deleted." }, 503);
   }
@@ -54,7 +54,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
         cache: "no-store",
       }
     );
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Video could not be updated." }, 503);
   }

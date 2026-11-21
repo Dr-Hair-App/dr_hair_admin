@@ -17,7 +17,7 @@ export async function GET(request: Request, context: { params: Promise<{ type: s
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
       cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: `Export for ${type} is temporarily unavailable.` }, 503);
   }

@@ -12,7 +12,7 @@ export async function GET() {
     if (upstream.ok) {
       return cacheableJson(data, 60, 300, upstream.status);
     }
-    return noStoreJson(data, upstream.status);
+    return noStoreJson(data, upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Clinic schedule settings are temporarily unavailable." }, 503);
   }
@@ -29,7 +29,7 @@ export async function PUT(request: Request) {
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" },
       body: JSON.stringify(body), cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Could not update clinic schedule settings." }, 503);
   }

@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     });
     const result = await readJson(upstream);
     if (!upstream.ok) {
-      return noStoreJson({ message: apiMessage(result, "Admin ID or password is incorrect.") }, upstream.status);
+      return noStoreJson({ message: apiMessage(result, "Admin ID or password is incorrect.") }, upstream.status, upstream);
     }
 
     const data = result.data && typeof result.data === "object" ? result.data as Record<string, unknown> : {};

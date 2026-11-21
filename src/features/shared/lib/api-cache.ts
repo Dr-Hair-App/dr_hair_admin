@@ -1,4 +1,4 @@
-import { fetchWithoutAdminRequestCapture, recordAdminRequest } from "./admin-request-recorder.ts";
+import { fetchWithoutAdminRequestCapture, getAdminRequestView, recordAdminRequest } from "./admin-request-recorder.ts";
 
 /**
  * Client-side in-memory TTL and SWR (Stale-While-Revalidate) Cache Utility
@@ -309,6 +309,7 @@ export async function cachedFetch(
   const method = (init?.method || "GET").toUpperCase();
   const cacheKey = getCacheKey(url, init);
   const startedAt = performance.now();
+  const requestView = getAdminRequestView();
   const record = (response: Response | null, cacheOutcome: "miss" | "hit" | "stale" | "coalesced" | "refresh" | "mutation" | "error") => {
     recordAdminRequest({
       url,
@@ -316,6 +317,7 @@ export async function cachedFetch(
       status: response?.status ?? null,
       durationMs: performance.now() - startedAt,
       cacheOutcome,
+      view: requestView,
     });
   };
 

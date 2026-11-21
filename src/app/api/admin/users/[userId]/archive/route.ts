@@ -9,6 +9,6 @@ export async function GET(_request: Request, { params }: RouteContext) {
   const { userId } = await params;
   try {
     const upstream = await fetch(backendUrl(`/api/v1/admin/users/${encodeURIComponent(userId)}/archive`), { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, cache: "no-store" });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch { return noStoreJson({ message: "Archived reports are temporarily unavailable." }, 503); }
 }

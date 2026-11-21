@@ -14,7 +14,7 @@ export async function GET(request: Request) {
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
       cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Commerce reporting is temporarily unavailable." }, 503);
   }

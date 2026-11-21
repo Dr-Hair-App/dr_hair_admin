@@ -8,7 +8,7 @@ export async function GET() {
 
   try {
     const upstream = await forwardMyAdminReports(token, fetchBackend);
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Clinical reports service is temporarily unavailable." }, 503);
   }

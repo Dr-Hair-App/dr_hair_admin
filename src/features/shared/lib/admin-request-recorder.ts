@@ -27,7 +27,7 @@ const records: AdminRequestRecord[] = [];
 const SAFE_ROOTS = new Set([
   "accounts", "appointments", "api-traffic", "audit-logs", "categories",
   "commerce", "content", "coupons", "dashboard", "exports", "features",
-  "hair-tests", "media", "notifications", "orders", "payments", "products",
+  "hair-tests", "health", "media", "notifications", "orders", "payments", "products",
   "releases", "reports", "reviews", "support", "treatments", "users",
 ]);
 const ROUTE_TEMPLATES: Record<string, string[][]> = {
@@ -41,6 +41,7 @@ const ROUTE_TEMPLATES: Record<string, string[][]> = {
   exports: [[":type"]],
   features: [[":key"]],
   "hair-tests": [[":id"], [":id", "status"]],
+  health: [],
   media: [["videos"], ["videos", ":id"], ["videos", "status"], ["videos", "youtube"]],
   notifications: [],
   orders: [[":id"], [":id", "cancel"], [":id", "refund"], [":id", "fulfillment"], [":id", "tracking"], [":id", "shiprocket"], [":id", "shiprocket", "pickup", "retry"], [":id", "shiprocket", "return"]],
@@ -157,13 +158,14 @@ export function installAdminFetchRecorder(): () => void {
     const route = sanitizeAdminRoute(rawUrl);
     if (!route || suppressNetworkCapture > 0) return originalFetch.call(this, input, init);
     const startedAt = performance.now();
+    const requestView = getAdminRequestView();
     const method = init?.method || (typeof Request !== "undefined" && input instanceof Request ? input.method : "GET");
     try {
       const response = await originalFetch.call(this, input, init);
-      recordAdminRequest({ url: rawUrl, method, status: response.status, durationMs: performance.now() - startedAt, cacheOutcome: "network" });
+      recordAdminRequest({ url: rawUrl, method, status: response.status, durationMs: performance.now() - startedAt, cacheOutcome: "network", view: requestView });
       return response;
     } catch (error) {
-      recordAdminRequest({ url: rawUrl, method, status: null, durationMs: performance.now() - startedAt, cacheOutcome: "error" });
+      recordAdminRequest({ url: rawUrl, method, status: null, durationMs: performance.now() - startedAt, cacheOutcome: "error", view: requestView });
       throw error;
     }
   };

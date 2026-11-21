@@ -18,7 +18,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
     const contentType = request.headers.get("content-type") || "";
     if (contentType.toLowerCase().startsWith("multipart/form-data;")) {
       const upstream = await forwardAdminMediaMultipart(request, path, "PUT", token, fetchBackend);
-      return noStoreJson(await readJson(upstream), upstream.status);
+      return noStoreJson(await readJson(upstream), upstream.status, upstream);
     }
     let body: unknown;
     try {
@@ -32,7 +32,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
       body: JSON.stringify(body),
       cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Reviews service is temporarily unavailable." }, 503);
   }
@@ -47,7 +47,7 @@ export async function DELETE(_request: Request, { params }: RouteContext) {
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
       cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Reviews service is temporarily unavailable." }, 503);
   }

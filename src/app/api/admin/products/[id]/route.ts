@@ -16,7 +16,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
       headers: { Accept: "application/json" },
       cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "The product service is temporarily unavailable." }, 503);
   }
@@ -46,7 +46,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
         token,
         fetchBackend,
       );
-      return noStoreJson(await readJson(upstream), upstream.status);
+      return noStoreJson(await readJson(upstream), upstream.status, upstream);
     } catch {
       return noStoreJson({ message: "The product service is temporarily unavailable." }, 503);
     }
@@ -60,7 +60,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
       token,
       fetchBackend,
     );
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch (error) {
     if (error instanceof TypeError) return noStoreJson({ message: error.message }, 415);
     return noStoreJson({ message: "The product service is temporarily unavailable." }, 503);
@@ -82,7 +82,7 @@ export async function DELETE(_request: Request, { params }: RouteContext) {
       },
       cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "The product service is temporarily unavailable." }, 503);
   }

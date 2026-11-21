@@ -20,7 +20,7 @@ export async function GET(request: Request) {
       },
       cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Hair tests service is temporarily unavailable." }, 503);
   }

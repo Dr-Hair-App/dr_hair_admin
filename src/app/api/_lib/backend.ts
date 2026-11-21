@@ -80,10 +80,15 @@ export async function fetchBackend(path: string, init?: RequestInit): Promise<Re
   return fetch(backendUrl(path), init);
 }
 
-export function noStoreJson(body: unknown, status = 200) {
+export function noStoreJson(body: unknown, status = 200, upstream?: Response) {
+  const headers = new Headers({ "Cache-Control": "no-store, max-age=0" });
+  const serverRequestId = upstream?.headers.get("x-server-request-id");
+  if (serverRequestId && /^req_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(serverRequestId)) {
+    headers.set("X-Server-Request-ID", serverRequestId);
+  }
   return NextResponse.json(body, {
     status,
-    headers: { "Cache-Control": "no-store, max-age=0" },
+    headers,
   });
 }
 

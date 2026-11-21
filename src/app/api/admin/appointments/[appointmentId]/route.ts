@@ -11,6 +11,6 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   try { body = await request.json(); } catch { return noStoreJson({ message: "Send appointment changes as JSON." }, 400); }
   try {
     const upstream = await fetch(backendUrl(`/api/v1/admin/appointments/${encodeURIComponent(appointmentId)}`), { method: "PATCH", headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify(body), cache: "no-store" });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch { return noStoreJson({ message: "Appointment could not be updated." }, 503); }
 }

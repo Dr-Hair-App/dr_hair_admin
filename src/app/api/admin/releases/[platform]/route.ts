@@ -28,7 +28,7 @@ export async function PUT(request: Request, context: { params: Promise<{ platfor
       body: JSON.stringify(body),
       cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Release policy could not be updated." }, 503);
   }

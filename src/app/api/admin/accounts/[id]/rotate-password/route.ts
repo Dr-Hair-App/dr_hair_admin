@@ -28,7 +28,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       body: JSON.stringify(body),
       cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Admin password could not be rotated." }, 503);
   }

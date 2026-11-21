@@ -24,7 +24,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ orderId
       body: JSON.stringify(body),
       cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Order fulfillment could not be updated." }, 503);
   }

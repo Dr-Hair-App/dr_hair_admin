@@ -28,7 +28,7 @@ export async function PATCH(
         cache: "no-store",
       }
     );
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Support inquiry update is temporarily unavailable." }, 503);
   }

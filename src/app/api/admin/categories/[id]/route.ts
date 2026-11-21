@@ -27,7 +27,7 @@ export async function PUT(
       cache: "no-store",
     });
     const data = await readJson(upstream);
-    return noStoreJson(data, upstream.status);
+    return noStoreJson(data, upstream.status, upstream);
   } catch {
     return noStoreJson({ status: "error", message: "Failed to update category" }, 500);
   }
@@ -50,7 +50,7 @@ export async function DELETE(
       cache: "no-store",
     });
     const data = await readJson(upstream);
-    return noStoreJson(data, upstream.status);
+    return noStoreJson(data, upstream.status, upstream);
   } catch {
     return noStoreJson({ status: "error", message: "Failed to delete category" }, 500);
   }

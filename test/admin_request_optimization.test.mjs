@@ -18,6 +18,30 @@ describe("Admin Panel Request Optimization Verification (Milestone 2)", () => {
     assert.equal(res.headers.get("Cache-Control"), "no-store, max-age=0");
   });
 
+  it("Admin proxy responses preserve only the backend server request ID", async () => {
+    const upstream = Response.json({ ok: true }, {
+      headers: {
+        "X-Server-Request-ID": "req_123e4567-e89b-12d3-a456-426614174000",
+        "X-Internal-Debug": "private",
+      },
+    });
+    const payload = await upstream.json();
+    const response = noStoreJson(payload, upstream.status, upstream);
+
+    assert.equal(response.headers.get("X-Server-Request-ID"), "req_123e4567-e89b-12d3-a456-426614174000");
+    assert.equal(response.headers.get("X-Internal-Debug"), null);
+    assert.equal(response.headers.get("Cache-Control"), "no-store, max-age=0");
+  });
+
+  it("noStoreJson rejects caller-controlled or malformed server request IDs", () => {
+    const upstream = new Response(null, {
+      headers: { "X-Server-Request-ID": "caller-controlled-id" },
+    });
+    const response = noStoreJson({ ok: true }, 200, upstream);
+
+    assert.equal(response.headers.get("X-Server-Request-ID"), null);
+  });
+
   it("cloudflare.config.ts configures BACKEND_SERVICE binding to dr-hair-backend", async () => {
     const config = await read("../cloudflare.config.ts");
     assert.match(config, /BACKEND_SERVICE:\s*bindings\.worker\(\{\s*worker:\s*["']dr-hair-backend["']\s*\}\)/);

@@ -8,7 +8,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ user
   const inline = new URL(request.url).searchParams.get("inline") === "true";
   try {
     const upstream = await fetch(backendUrl(`/api/v1/admin/users/${encodeURIComponent(userId)}/reports/${encodeURIComponent(reportId)}/download${inline ? "?inline=true" : ""}`), { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, cache: "no-store" });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "The report download is temporarily unavailable." }, 503);
   }

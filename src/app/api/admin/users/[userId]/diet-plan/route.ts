@@ -28,7 +28,7 @@ export async function POST(
         cache: "no-store",
       }
     );
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Diet plan update is temporarily unavailable." }, 503);
   }

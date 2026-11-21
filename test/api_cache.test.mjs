@@ -8,12 +8,12 @@ import {
   setCacheSessionScope,
   resolveTtl,
   TTL_PROFILES,
-  getCacheStats,
 } from "../src/features/shared/lib/api-cache.ts";
 import {
   clearAdminRequestRecords,
   getAdminRequestRecords,
   recordAdminRequest,
+  installAdminFetchRecorder,
   sanitizeAdminRoute,
   setAdminRequestView,
 } from "../src/features/shared/lib/admin-request-recorder.ts";
@@ -35,6 +35,7 @@ describe("api-cache.ts Client-Side Request Cache Utility", () => {
       sanitizeAdminRoute("/api/admin/users/Patient%20Name/assessments/HT-QA-91/photos/2?token=hidden"),
       "/api/admin/users/:id/assessments/:id/photos/:index",
     );
+    assert.equal(sanitizeAdminRoute("/api/admin/health?probe=private"), "/api/admin/health");
     assert.equal(sanitizeAdminRoute("/api/auth/session?token=secret"), null);
     assert.equal(sanitizeAdminRoute("/api/admin/api-traffic?search=private"), null);
 
@@ -67,7 +68,7 @@ describe("api-cache.ts Client-Side Request Cache Utility", () => {
   it("caches successful GET responses and serves cache hits without extra network requests", async () => {
     let networkCallCount = 0;
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = async (url) => {
+    globalThis.fetch = async () => {
       networkCallCount++;
       return new Response(JSON.stringify({ success: true, count: networkCallCount }), {
         status: 200,
@@ -188,7 +189,7 @@ describe("api-cache.ts Client-Side Request Cache Utility", () => {
 
     try {
       // Launch 4 concurrent requests at once
-      const [r1, r2, r3, r4] = await Promise.all([
+      const responses = await Promise.all([
         cachedFetch("/api/admin/features", undefined, 5000),
         cachedFetch("/api/admin/features", undefined, 5000),
         cachedFetch("/api/admin/features", undefined, 5000),
@@ -198,12 +199,51 @@ describe("api-cache.ts Client-Side Request Cache Utility", () => {
       assert.equal(networkCallCount, 1);
       const outcomes = getAdminRequestRecords().map((entry) => entry.cache_outcome).sort();
       assert.deepEqual(outcomes, ["coalesced", "coalesced", "coalesced", "miss"]);
-      const json1 = await r1.json();
-      const json2 = await r2.json();
-      assert.equal(json1.value, "coalesced");
-      assert.equal(json2.value, "coalesced");
+      const values = await Promise.all(responses.map((response) => response.json()));
+      assert.deepEqual(values.map((item) => item.value), ["coalesced", "coalesced", "coalesced", "coalesced"]);
     } finally {
       globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("attributes cached requests to the view active when the request starts", async () => {
+    let resolveFetch;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = () => new Promise((resolve) => { resolveFetch = resolve; });
+
+    try {
+      setAdminRequestView("orders");
+      const pending = cachedFetch("/api/admin/orders?limit=50", undefined, 0, { swr: false });
+      setAdminRequestView("patients");
+      resolveFetch(new Response("{}", { status: 200, headers: { "content-type": "application/json" } }));
+      await pending;
+      assert.equal(getAdminRequestRecords()[0]?.view, "orders");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("attributes direct Admin fetches to the view active when the request starts", async () => {
+    const hadWindow = Object.hasOwn(globalThis, "window");
+    const previousWindow = globalThis.window;
+    let resolveFetch;
+    let restore = () => {};
+    globalThis.window = {
+      fetch: () => new Promise((resolve) => { resolveFetch = resolve; }),
+    };
+
+    try {
+      setAdminRequestView("orders");
+      restore = installAdminFetchRecorder();
+      const pending = globalThis.window.fetch("/api/admin/orders?limit=50");
+      setAdminRequestView("patients");
+      resolveFetch(new Response("{}", { status: 200 }));
+      await pending;
+      assert.equal(getAdminRequestRecords()[0]?.view, "orders");
+    } finally {
+      restore();
+      if (hadWindow) globalThis.window = previousWindow;
+      else delete globalThis.window;
     }
   });
 

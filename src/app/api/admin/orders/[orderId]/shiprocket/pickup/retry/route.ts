@@ -11,7 +11,7 @@ export async function POST(_request: Request, props: { params: Promise<{ orderId
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
       cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Shiprocket is temporarily unavailable." }, 503);
   }

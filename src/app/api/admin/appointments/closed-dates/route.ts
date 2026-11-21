@@ -12,7 +12,7 @@ export async function GET() {
     if (upstream.ok) {
       return cacheableJson(data, 60, 300, upstream.status);
     }
-    return noStoreJson(data, upstream.status);
+    return noStoreJson(data, upstream.status, upstream);
   } catch { return noStoreJson({ message: "Clinic availability is temporarily unavailable." }, 503); }
 }
 
@@ -23,6 +23,6 @@ export async function POST(request: Request) {
   try { body = await request.json(); } catch { return noStoreJson({ message: "Send the clinic date as JSON." }, 400); }
   try {
     const upstream = await fetch(backendUrl("/api/v1/admin/appointments/closed-dates"), { method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify(body), cache: "no-store" });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch { return noStoreJson({ message: "Clinic availability could not be changed." }, 503); }
 }

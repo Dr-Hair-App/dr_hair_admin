@@ -30,7 +30,7 @@ async function forward(request: Request, { params }: RouteContext, method: "GET"
       ...(body ? { body } : {}),
       cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "The inventory service is temporarily unavailable." }, 503);
   }

@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     if (upstream.ok) {
       return cacheableJson(data, 60, 300, upstream.status);
     }
-    return noStoreJson(data, upstream.status);
+    return noStoreJson(data, upstream.status, upstream);
   } catch {
     return noStoreJson({ status: "error", message: "Failed to fetch categories" }, 500);
   }
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
       cache: "no-store",
     });
     const data = await readJson(upstream);
-    return noStoreJson(data, upstream.status);
+    return noStoreJson(data, upstream.status, upstream);
   } catch {
     return noStoreJson({ status: "error", message: "Failed to create category" }, 500);
   }

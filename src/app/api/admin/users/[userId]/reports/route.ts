@@ -17,7 +17,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ use
 
   try {
     const upstream = await forwardClinicalReportUpload(request, userId, token, fetchBackend);
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "The report storage service is temporarily unavailable." }, 503);
   }

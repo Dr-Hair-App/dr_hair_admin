@@ -8,7 +8,7 @@ export async function POST(request: Request) {
   try { body = await request.json(); } catch { return noStoreJson({ message: "Send treatment details as JSON." }, 400); }
   try {
     const upstream = await fetch(backendUrl("/api/v1/admin/treatments"), { method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify(body), cache: "no-store" });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Treatment suggestions are temporarily unavailable." }, 503);
   }

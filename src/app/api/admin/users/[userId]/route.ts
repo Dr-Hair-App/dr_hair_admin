@@ -20,7 +20,7 @@ export async function GET(request: Request, { params }: RouteContext) {
   const { userId } = await params;
   try {
     const upstream = await fetch(backendUrl(`/api/v1/admin/users/${encodeURIComponent(userId)}`), { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, cache: "no-store" });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Patient details are temporarily unavailable." }, 503);
   }
@@ -34,7 +34,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   try { body = await request.json(); } catch { return noStoreJson({ message: "Send profile fields as JSON." }, 400); }
   try {
     const upstream = await fetch(backendUrl(`/api/v1/admin/users/${encodeURIComponent(userId)}`), { method: "PATCH", headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify(body), cache: "no-store" });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Patient profile could not be updated." }, 503);
   }
@@ -50,7 +50,7 @@ export async function DELETE(request: Request, { params }: RouteContext) {
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
       cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "User account could not be deleted." }, 503);
   }

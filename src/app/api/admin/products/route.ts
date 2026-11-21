@@ -25,7 +25,7 @@ export async function GET(request: Request) {
     if (upstream.ok) {
       return cacheableJson(data, 60, 300, upstream.status);
     }
-    return noStoreJson(data, upstream.status);
+    return noStoreJson(data, upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "The product service is temporarily unavailable." }, 503);
   }
@@ -44,14 +44,14 @@ export async function POST(request: Request) {
     }
     try {
       const upstream = await forwardAdminProductJson(product, "/api/v1/admin/products", "POST", token, fetchBackend);
-      return noStoreJson(await readJson(upstream), upstream.status);
+      return noStoreJson(await readJson(upstream), upstream.status, upstream);
     } catch {
       return noStoreJson({ message: "The product service is temporarily unavailable." }, 503);
     }
   }
   try {
     const upstream = await forwardAdminProductMultipart(request, "/api/v1/admin/products", "POST", token, fetchBackend);
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch (error) {
     if (error instanceof TypeError) return noStoreJson({ message: error.message }, 415);
     return noStoreJson({ message: "The product service is temporarily unavailable." }, 503);

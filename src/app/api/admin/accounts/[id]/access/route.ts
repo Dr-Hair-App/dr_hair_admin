@@ -28,7 +28,7 @@ async function handleUpdate(request: Request, context: { params: Promise<{ id: s
       body: JSON.stringify(body),
       cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Admin access could not be updated." }, 503);
   }

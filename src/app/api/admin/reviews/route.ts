@@ -14,7 +14,7 @@ export async function GET(request: Request) {
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
       cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Reviews service is temporarily unavailable." }, 503);
   }
@@ -42,7 +42,7 @@ export async function PATCH(request: Request) {
       body: JSON.stringify(body),
       cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Failed to update review moderation status." }, 503);
   }
@@ -55,7 +55,7 @@ export async function POST(request: Request) {
     const contentType = request.headers.get("content-type") || "";
     if (contentType.toLowerCase().startsWith("multipart/form-data;")) {
       const upstream = await forwardAdminMediaMultipart(request, "/api/v1/admin/reviews", "POST", token, fetchBackend);
-      return noStoreJson(await readJson(upstream), upstream.status);
+      return noStoreJson(await readJson(upstream), upstream.status, upstream);
     }
     let body: unknown;
     try {
@@ -69,7 +69,7 @@ export async function POST(request: Request) {
       body: JSON.stringify(body),
       cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    return noStoreJson(await readJson(upstream), upstream.status, upstream);
   } catch {
     return noStoreJson({ message: "Reviews service is temporarily unavailable." }, 503);
   }

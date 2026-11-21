@@ -31,7 +31,7 @@ export async function GET(request: Request) {
       cache: "no-store",
     });
     const result = await readJson(upstream);
-    return noStoreJson(result, upstream.status);
+    return noStoreJson(result, upstream.status, upstream);
   } catch (error) {
     console.error("Admin patient-list proxy failed:", error instanceof Error ? error.message : "unknown error");
     return noStoreJson({ message: "Patient profiles are temporarily unavailable." }, 503);
