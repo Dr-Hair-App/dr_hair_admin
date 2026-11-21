@@ -131,6 +131,11 @@ export function HeaderSearch({
   const abortControllerRef = useRef<AbortController | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestIdRef = useRef(0);
+  const searchCacheRef = useRef<Map<string, {
+    patients: PatientSearchResult[];
+    products: ProductSearchResult[];
+    bookings: BookingSearchResult[];
+  }>>(new Map());
 
   // Sync incoming globalSearch if updated externally
   useEffect(() => {
@@ -188,16 +193,27 @@ export function HeaderSearch({
     );
   }, [localQuery]);
 
-  // Debounced API search
+  // Debounced API search with 350ms delay, min 2 chars guard, and result caching
   const performSearch = useCallback(
     async (queryText: string) => {
       const trimmed = queryText.trim();
       const requestId = ++requestIdRef.current;
-      if (!trimmed) {
+      if (trimmed.length < 2) {
         abortControllerRef.current?.abort();
         setPatients([]);
         setProducts([]);
         setBookings([]);
+        setIsSearching(false);
+        return;
+      }
+
+      // Check in-memory cache for recent search results
+      const cacheKey = trimmed.toLowerCase();
+      const cached = searchCacheRef.current.get(cacheKey);
+      if (cached) {
+        setPatients(cached.patients);
+        setProducts(cached.products);
+        setBookings(cached.bookings);
         setIsSearching(false);
         return;
       }
@@ -274,6 +290,11 @@ export function HeaderSearch({
             }));
         }
         if (controller.signal.aborted || requestId !== requestIdRef.current) return;
+        searchCacheRef.current.set(cacheKey, {
+          patients: nextPatients,
+          products: nextProducts,
+          bookings: nextBookings,
+        });
         setPatients(nextPatients);
         setProducts(nextProducts);
         setBookings(nextBookings);
@@ -288,25 +309,29 @@ export function HeaderSearch({
     []
   );
 
-  // Debounced input change
+  // Debounced input change (350ms debounce, min length 2, decoupled onSearchChange)
   const handleQueryChange = (val: string) => {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     setLocalQuery(val);
-    onSearchChange(val);
     setSelectedIndex(0);
     abortControllerRef.current?.abort();
     setIsSearching(false);
-    if (!val.trim()) {
+    const trimmed = val.trim();
+    if (trimmed.length < 2) {
       requestIdRef.current += 1;
       setPatients([]);
       setProducts([]);
       setBookings([]);
       setIsSearching(false);
+      if (trimmed.length === 0) {
+        onSearchChange("");
+      }
       return;
     }
     debounceTimerRef.current = setTimeout(() => {
+      onSearchChange(val);
       performSearch(val);
-    }, 250);
+    }, 350);
   };
 
   const handleClear = () => {
@@ -404,8 +429,15 @@ export function HeaderSearch({
       setSelectedIndex((prev) => (flatItems.length ? (prev - 1 + flatItems.length) % flatItems.length : 0));
     } else if (event.key === "Enter") {
       event.preventDefault();
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+      onSearchChange(localQuery);
       if (flatItems[selectedIndex]) {
         flatItems[selectedIndex].action();
+      } else if (localQuery.trim().length >= 2) {
+        performSearch(localQuery);
       }
     }
   };

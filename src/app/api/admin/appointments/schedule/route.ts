@@ -1,14 +1,18 @@
 import { cookies } from "next/headers";
-import { ADMIN_SESSION_COOKIE, backendUrl, noStoreJson, readJson } from "../../../_lib/backend";
+import { ADMIN_SESSION_COOKIE, backendUrl, cacheableJson, noStoreJson, readJson } from "../../../_lib/backend";
 
 export async function GET() {
   const token = (await cookies()).get(ADMIN_SESSION_COOKIE)?.value;
   if (!token) return noStoreJson({ message: "Sign in to view clinic schedule settings." }, 401);
   try {
     const upstream = await fetch(backendUrl("/api/v1/admin/appointments/schedule"), {
-      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, cache: "no-store",
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    const data = await readJson(upstream);
+    if (upstream.ok) {
+      return cacheableJson(data, 60, 300, upstream.status);
+    }
+    return noStoreJson(data, upstream.status);
   } catch {
     return noStoreJson({ message: "Clinic schedule settings are temporarily unavailable." }, 503);
   }

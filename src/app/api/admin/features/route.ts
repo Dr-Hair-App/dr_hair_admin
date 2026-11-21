@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { ADMIN_SESSION_COOKIE, backendUrl, noStoreJson, readJson } from "@/app/api/_lib/backend";
+import { ADMIN_SESSION_COOKIE, backendUrl, cacheableJson, noStoreJson, readJson } from "@/app/api/_lib/backend";
 
 async function adminToken() {
   return (await cookies()).get(ADMIN_SESSION_COOKIE)?.value;
@@ -16,9 +16,12 @@ export async function GET(request: Request) {
   try {
     const upstream = await fetch(backendUrl(`/api/v1/admin/features${query}`), {
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-      cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    const data = await readJson(upstream);
+    if (upstream.ok) {
+      return cacheableJson(data, 60, 300, upstream.status);
+    }
+    return noStoreJson(data, upstream.status);
   } catch {
     return noStoreJson({ message: "Feature flags are temporarily unavailable." }, 503);
   }

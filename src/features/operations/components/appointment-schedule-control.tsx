@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { CalendarClock, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
+import { cachedFetch, invalidateCache, TTL_PROFILES } from "../../shared/lib/api-cache";
 
 type Session = { label: string; opens_at: string; closes_at: string };
 type Schedule = {
@@ -29,7 +30,7 @@ export function AppointmentScheduleControl({ onToast, onAudit = () => {}, onUpda
 
   useEffect(() => {
     let active = true;
-    fetch("/api/admin/appointments/schedule", { cache: "no-store" })
+    cachedFetch("/api/admin/appointments/schedule", undefined, TTL_PROFILES.schedule)
       .then(async (response) => {
         const body = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(body.message || "Clinic schedule could not be loaded.");
@@ -78,6 +79,7 @@ export function AppointmentScheduleControl({ onToast, onAudit = () => {}, onUpda
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.message || "Clinic schedule could not be saved.");
+      invalidateCache("/api/admin/appointments/schedule");
       const data = body.data || {};
       setSchedule({ ...schedule, ...data, is_configured: true });
       onAudit("updated clinic availability schedule", "Clinic schedule");

@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, ClipboardCheck, EyeOff, FileCheck2, FileUp, Loader2, RefreshCw, Search, Share2 } from "lucide-react";
 import { Modal, PageHeader, StatusPill, TableToolbar } from "../../shared/components/ui";
 import type { AdminPermissionId, PatientRecord } from "../../shared/types";
 import type { HairTestRecord, HairTestStatus } from "../types";
+import { cachedFetch, TTL_PROFILES } from "../../shared/lib/api-cache";
 
 const permissionLabels: Record<HairTestStatus, string> = {
   Draft: "Draft",
@@ -31,12 +32,29 @@ export function HairTestsPage({
   const router = useRouter();
   const [records, setRecords] = useState<HairTestRecord[]>([]);
   const [patientsList, setPatientsList] = useState<PatientRecord[]>(patients);
+  const patientsListRef = useRef<PatientRecord[]>(patients);
   const [query, setQuery] = useState("");
   const [patientId, setPatientId] = useState(patients[0]?.id ?? "");
 
+  // Keep patientsListRef in sync and backfill patient names into already loaded records
+  useEffect(() => {
+    patientsListRef.current = patientsList;
+    if (patientsList.length > 0) {
+      setRecords((currentRecords) =>
+        currentRecords.map((record) => {
+          if (!record.patientName || record.patientName.startsWith("Patient #")) {
+            const matched = patientsList.find((p) => String(p.id) === String(record.patientId));
+            if (matched) return { ...record, patientName: matched.name };
+          }
+          return record;
+        })
+      );
+    }
+  }, [patientsList]);
+
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/admin/users?page=1&limit=100", { cache: "no-store", signal: controller.signal })
+    cachedFetch("/api/admin/users?page=1&limit=100", { signal: controller.signal }, TTL_PROFILES.navigationShort)
       .then((res) => (res.ok ? res.json() : null))
       .then((result) => {
         const items = result?.data?.items;
@@ -87,10 +105,10 @@ export function HairTestsPage({
   const loadRecords = useCallback(async (signal?: AbortSignal) => {
     try {
       const [testsRes, reportsRes] = await Promise.all([
-        fetch("/api/admin/hair-tests?limit=50", { cache: "no-store", signal })
+        cachedFetch("/api/admin/hair-tests?limit=50", { signal }, TTL_PROFILES.navigationShort)
           .then((res) => (res.ok ? res.json() : null))
           .catch(() => null),
-        fetch(reportListEndpoint, { cache: "no-store", signal })
+        cachedFetch(reportListEndpoint, { signal }, TTL_PROFILES.navigationShort)
           .then((res) => (res.ok ? res.json() : null))
           .catch(() => null),
       ]);
@@ -101,7 +119,7 @@ export function HairTestsPage({
       if (Array.isArray(rawTests) && rawTests.length > 0) {
         rawTests.forEach((t: Record<string, unknown>) => {
           if (String(t.status || "").toLowerCase() === "archived") return;
-          const patient = patientsList.find((p) => String(p.id) === String(t.userId));
+          const patient = patientsListRef.current.find((p) => String(p.id) === String(t.userId));
           const stage = String(t.hair_loss_stage || t.stage || t.main_concern || "Scalp screening");
           const photos = Array.isArray(t.scalp_photos)
             ? t.scalp_photos.filter((photo): photo is Record<string, unknown> => Boolean(photo) && typeof photo === "object")
@@ -138,7 +156,7 @@ export function HairTestsPage({
       const reportItems = reportsRes?.data?.reports;
       if (Array.isArray(reportItems) && reportItems.length > 0) {
         reportItems.forEach((r: Record<string, unknown>) => {
-          const patient = patientsList.find((p) => String(p.id) === String(r.userId));
+          const patient = patientsListRef.current.find((p) => String(p.id) === String(r.userId));
           combined.push({
             id: String(r.id),
             patientId: String(r.userId),
@@ -160,7 +178,7 @@ export function HairTestsPage({
     } catch {
       // Keep previous records on fetch error
     }
-  }, [patientsList, actor, reportListEndpoint]);
+  }, [actor, reportListEndpoint]);
 
   useEffect(() => {
     const controller = new AbortController();

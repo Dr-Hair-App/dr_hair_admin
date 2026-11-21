@@ -1,5 +1,10 @@
 export type Role = "admin" | "super-admin";
-export type AdminRoleTemplate = "clinical-admin" | "operations-admin" | "content-admin" | "hair-test-operator" | "custom-admin";
+export type AdminRoleTemplate =
+  | "clinical-admin"
+  | "operations-admin"
+  | "content-admin"
+  | "hair-test-operator"
+  | "custom-admin";
 export type AdminPermissionId =
   | "patients.view"
   | "assessments.review"
@@ -38,9 +43,28 @@ export type PageKey =
   | "activity"
   | "notifications";
 
-export type Status = "Active" | "Pending" | "Inactive" | "Published" | "Draft" | "Review" | "Completed" | "Cancelled" | "No show" | "Suspended";
-export type OrderFulfillmentStatus = "New" | "Preparing" | "Shipped" | "Delivered" | "Needs attention" | "Return requested" | "Cancelled" | "Refunded";
-export type OrderPaymentStatus = "Paid" | "Pending" | "Failed" | "Partially refunded" | "Refunded";
+export type Status =
+  | "Active"
+  | "Pending"
+  | "Inactive"
+  | "Published"
+  | "Draft"
+  | "Review"
+  | "Completed"
+  | "Cancelled"
+  | "No show"
+  | "Suspended";
+export type OrderFulfillmentStatus =
+  | "New"
+  | "Preparing"
+  | "Shipped"
+  | "Delivered"
+  | "Needs attention"
+  | "Return requested"
+  | "Cancelled"
+  | "Refunded";
+export type OrderPaymentStatus =
+  "Paid" | "Pending" | "Failed" | "Partially refunded" | "Refunded";
 
 export interface PatientRecord {
   id: string;
@@ -66,7 +90,9 @@ export interface AdminRecord {
   email: string;
   role: string;
   roleTemplate?: AdminRoleTemplate;
-  permissionOverrides?: Partial<Record<AdminPermissionId, AdminPermissionOverride>>;
+  permissionOverrides?: Partial<
+    Record<AdminPermissionId, AdminPermissionOverride>
+  >;
   access: string;
   actions: string[];
   lastActive: string;
@@ -120,8 +146,22 @@ export interface OrderRecord {
   refundStatus?: "pending" | "processed" | "failed" | "";
   paymentReference?: string;
   refundReference?: string;
-  refundHistory?: { id: string; amount: number; currency: string; status: "pending" | "processed" | "failed"; updatedAt?: string }[];
-  paymentAttempts?: { id: string; amount: number; currency: string; method?: string; status: string; failureCode?: string; attemptedAt?: string }[];
+  refundHistory?: {
+    id: string;
+    amount: number;
+    currency: string;
+    status: "pending" | "processed" | "failed";
+    updatedAt?: string;
+  }[];
+  paymentAttempts?: {
+    id: string;
+    amount: number;
+    currency: string;
+    method?: string;
+    status: string;
+    failureCode?: string;
+    attemptedAt?: string;
+  }[];
   gatewayAttemptStatus?: string;
   gatewayFailureCode?: string;
   refundReason?: string;
@@ -150,7 +190,14 @@ export interface BookingRecord {
   doctorName?: string;
   room?: string;
   tokenNumber?: string;
-  opdStatus?: "Requested" | "Confirmed" | "Arrived" | "In Consultation" | "Completed" | "No show" | "Cancelled";
+  opdStatus?:
+    | "Requested"
+    | "Confirmed"
+    | "Arrived"
+    | "In Consultation"
+    | "Completed"
+    | "No show"
+    | "Cancelled";
   consultationFee?: number;
   paymentStatus?: "Pending" | "Paid" | "Refunded" | "Waived";
   paymentMethod?: string;
@@ -174,5 +221,37 @@ export interface AuditEventRecord {
   action: string;
   target: string;
   time: string;
-  type: "Access" | "Feature" | "Content" | "Notifications" | "App updates" | "Commerce" | "Orders" | "Clinical" | "Testing" | "Bookings";
+  type:
+    | "Access"
+    | "Feature"
+    | "Content"
+    | "Notifications"
+    | "App updates"
+    | "Commerce"
+    | "Orders"
+    | "Clinical"
+    | "Testing"
+    | "Bookings";
+}
+
+export interface AdminDashboardSummary {
+  patients?: { total?: number };
+  appointments?: {
+    total?: number;
+    today?: number;
+    pending?: number;
+    confirmed?: number;
+    completed?: number;
+  };
+  assessments?: { total?: number; pending?: number };
+  reports?: { total?: number; shared?: number };
+  catalog?: { totalProducts?: number; lowStockProducts?: number };
+  recentActivity?: Array<{
+    id: string;
+    who: string;
+    action: string;
+    target: string;
+    type: string;
+    time: string;
+  }>;
 }

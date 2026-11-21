@@ -28,6 +28,7 @@ import type { BookingRecord, PatientRecord } from "../../shared/types";
 import type { AdminPermissionId } from "../../shared/types";
 import { OrdersPage } from "./orders-page";
 import { AppointmentBillingControl } from "./appointment-billing-control";
+import { cachedFetch, invalidateCache, TTL_PROFILES } from "../../shared/lib/api-cache";
 import { AppointmentScheduleControl } from "./appointment-schedule-control";
 
 type CareOperationsKind = "patients" | "bookings";
@@ -142,8 +143,8 @@ function CareOperationsPage({
     if (isPatient) return;
     const controller = new AbortController();
     Promise.all([
-      fetch("/api/admin/appointments/schedule", { cache: "no-store", signal: controller.signal }),
-      fetch("/api/admin/appointments/billing", { cache: "no-store", signal: controller.signal }),
+      cachedFetch("/api/admin/appointments/schedule", { signal: controller.signal }, TTL_PROFILES.schedule),
+      cachedFetch("/api/admin/appointments/billing", { signal: controller.signal }, TTL_PROFILES.schedule),
     ]).then(async ([scheduleResponse, billingResponse]) => {
       const [scheduleBody, billingBody] = await Promise.all([
         scheduleResponse.json().catch(() => ({})), billingResponse.json().catch(() => ({})),
@@ -171,10 +172,11 @@ function CareOperationsPage({
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       try {
-        const response = await fetch("/api/admin/appointments", {
-          cache: "no-store",
-          signal: controller.signal,
-        });
+        const response = await cachedFetch(
+          "/api/admin/appointments",
+          undefined,
+          TTL_PROFILES.navigationShort,
+        );
         const result = await response.json().catch(() => ({}));
         if (!response.ok) return;
         const data = result.data && typeof result.data === "object" ? result.data : {};
@@ -195,8 +197,8 @@ function CareOperationsPage({
           tokenNumber: typeof item.tokenNumber === "string" ? item.tokenNumber : (typeof item.opd_token === "string" ? item.opd_token : undefined),
           opdStatus: (item.status || item.opdStatus || "Confirmed") as BookingRecord["opdStatus"],
           consultationFee: typeof item.consultationFee === "number" ? item.consultationFee : (typeof item.consultation_fee === "number" ? item.consultation_fee : undefined),
-          paymentStatus: typeof item.paymentStatus === "string" ? item.paymentStatus : (typeof item.payment_status === "string" ? item.payment_status : "Paid"),
-          paymentMethod: typeof item.paymentMethod === "string" ? item.paymentMethod : (typeof item.payment_method === "string" ? item.payment_method : "UPI"),
+          paymentStatus: typeof item.paymentStatus === "string" ? item.paymentStatus : (typeof item.payment_status === "string" ? item.payment_status : "Pending"),
+          paymentMethod: typeof item.paymentMethod === "string" ? item.paymentMethod : (typeof item.payment_method === "string" ? item.payment_method : "Pay at clinic"),
           paymentTransactionId: typeof item.paymentTransactionId === "string" ? item.paymentTransactionId : (typeof item.payment_transaction_id === "string" ? item.payment_transaction_id : undefined),
           refundStatus: typeof item.refund_status === "string" ? item.refund_status as BookingRecord["refundStatus"] : undefined,
           refundAmount: typeof item.refund_amount === "number" ? item.refund_amount : undefined,
@@ -220,7 +222,7 @@ function CareOperationsPage({
   useEffect(() => {
     if (isPatient) return;
     const controller = new AbortController();
-    fetch("/api/admin/appointments/closed-dates", { cache: "no-store", signal: controller.signal })
+    cachedFetch("/api/admin/appointments/closed-dates", { signal: controller.signal }, TTL_PROFILES.closedDates)
       .then((res) => res.json())
       .then((result) => {
         const items = result?.data?.items;
@@ -233,6 +235,9 @@ function CareOperationsPage({
   }, [isPatient, reloadHolidays]);
 
   useEffect(() => {
+    // Only fetch patient list if on patients triage screen or if opening appointment booking form
+    if (!isPatient && !showAppointmentForm) return;
+
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       if (isPatient) {
@@ -242,10 +247,9 @@ function CareOperationsPage({
       const params = new URLSearchParams({ page: String(isPatient ? patientPage : 1), limit: isPatient ? "50" : "100" });
       if (isPatient && apiSearch) params.set("search", apiSearch);
       try {
-        const response = await fetch(`/api/admin/users?${params.toString()}`, {
-          cache: "no-store",
+        const response = await cachedFetch(`/api/admin/users?${params.toString()}`, {
           signal: controller.signal,
-        });
+        }, TTL_PROFILES.navigationShort);
         const result = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(result.message || "Patient profiles could not be loaded.");
         const data = result.data && typeof result.data === "object" ? result.data : {};
@@ -284,7 +288,7 @@ function CareOperationsPage({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [apiSearch, isPatient, patientPage, reloadPatients]);
+  }, [apiSearch, isPatient, patientPage, reloadPatients, showAppointmentForm]);
 
   const addClinicHoliday = async () => {
     if (!newHolidayDate) {
@@ -307,6 +311,7 @@ function CareOperationsPage({
         onToast(result.message || "Could not close this clinic date.");
         return;
       }
+      invalidateCache("/api/admin/appointments/closed-dates");
       onAudit("added clinic holiday", newHolidayDate);
       onToast(result.message || `New bookings are blocked for ${formatDateKey(newHolidayDate)}.`);
       setNewHolidayDate("");
@@ -327,6 +332,7 @@ function CareOperationsPage({
         onToast(result.message || `Could not reopen clinic date: ${date}`);
         return;
       }
+      invalidateCache("/api/admin/appointments/closed-dates");
       onAudit("removed clinic holiday", date);
       onToast(result.message || `Clinic holiday removed: ${date}`);
       setReloadHolidays((c) => c + 1);
@@ -348,6 +354,7 @@ function CareOperationsPage({
         onToast(result.message || "Could not update OPD status.");
         return;
       }
+      invalidateCache("/api/admin/appointments");
       const mainStatus: BookingRecord["status"] = nextOpdStatus === "Completed" ? "Completed" : nextOpdStatus === "No show" ? "No show" : "Active";
       setDialog((current) => current?.id === bookingId ? { ...current, opdStatus: nextOpdStatus, status: mainStatus } : current);
       onAudit(`updated OPD status to ${nextOpdStatus}`, `Booking ${bookingId}`);
@@ -382,6 +389,7 @@ function CareOperationsPage({
           onToast(result.message || "Could not request the Razorpay appointment refund.");
           return;
         }
+        invalidateCache("/api/admin/appointments");
         const refundStatus = result.data?.refund_status || "pending";
         onAudit(`requested Razorpay appointment refund (${refundStatus})`, `Appointment ${paymentModalBooking.id}`);
         onToast(refundStatus === "processed" ? "Razorpay processed the appointment refund." : "Razorpay accepted the appointment refund request; confirmation is pending.");
@@ -415,6 +423,7 @@ function CareOperationsPage({
         onToast(result.message || "Could not update payment status.");
         return;
       }
+      invalidateCache("/api/admin/appointments");
       setDialog((current) => current?.id === paymentModalBooking.id ? {
         ...current,
         paymentStatus: paymentActionStatus,
@@ -524,6 +533,7 @@ function CareOperationsPage({
         onToast(result.message || "Could not update appointment status.");
         return;
       }
+      invalidateCache("/api/admin/appointments");
       onAudit("updated clinic appointment", `${dialog.id} · ${status}`);
       onToast(`Appointment updated to ${status}.`);
       setDialog(null);
@@ -602,6 +612,7 @@ function CareOperationsPage({
           onToast(result.message || "Could not reschedule appointment.");
           return;
         }
+        invalidateCache("/api/admin/appointments");
         onAudit("rescheduled clinic appointment", `${editingAppointmentId} · ${patient.id}`);
         onToast("Appointment rescheduled and push notification sent to patient.");
       } else {
@@ -625,6 +636,7 @@ function CareOperationsPage({
           onToast(result.message || "Could not schedule appointment.");
           return;
         }
+        invalidateCache("/api/admin/appointments");
         const createdId = result?.data?.id || "new";
         onAudit("created clinic appointment", `${createdId} · ${patient.id} · Payment: ${appointmentPaymentStatus}`);
         onToast(`OPD appointment scheduled (Payment: ${appointmentPaymentStatus} · ₹${appointmentPaymentStatus === "Waived" ? 0 : appointmentFee}).`);
@@ -727,6 +739,7 @@ function CareOperationsPage({
         onToast(result.message || "Could not cancel appointment.");
         return;
       }
+      invalidateCache("/api/admin/appointments");
       onAudit("cancelled clinic appointment", `${cancelBookingTarget.id} · Reason: ${finalReason}`);
       onToast("Appointment cancelled. Push notification sent to patient.");
       setCancelBookingTarget(null);
@@ -1956,7 +1969,7 @@ function AppointmentList({ bookings, onOpen, onRecordPayment, onAdvance }: {
           ) : (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
               <Clock size={11} className="text-amber-600" />
-              Pay at clinic · {booking.consultationFee == null ? "fee not set" : `₹${booking.consultationFee}`}
+              Payment Pending · {booking.consultationFee == null ? "fee not set" : `₹${booking.consultationFee}`} (Pay at clinic)
             </span>
           )}
         </div>

@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { NextRequest } from "next/server";
-import { ADMIN_SESSION_COOKIE, fetchBackend, noStoreJson, readJson } from "../../_lib/backend";
+import { ADMIN_SESSION_COOKIE, cacheableJson, fetchBackend, noStoreJson, readJson } from "../../_lib/backend";
 
 async function adminToken() {
   return (await cookies()).get(ADMIN_SESSION_COOKIE)?.value;
@@ -16,9 +16,11 @@ export async function GET(request: NextRequest) {
       : "/api/v1/categories";
     const upstream = await fetchBackend(path, {
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-      cache: "no-store",
     });
     const data = await readJson(upstream);
+    if (upstream.ok) {
+      return cacheableJson(data, 60, 300, upstream.status);
+    }
     return noStoreJson(data, upstream.status);
   } catch {
     return noStoreJson({ status: "error", message: "Failed to fetch categories" }, 500);

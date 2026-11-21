@@ -40,7 +40,7 @@ Feature screens stay grouped by domain. Shared UI and role/access rules live in 
 - Clinic appointments are browser previews from staff and sample app sources. The Flutter app has a separate local physical visit request flow for Dr. Jai Bansal; requests do not sync yet.
 - Content/product forms, search, status filters, and record detail dialogs use local sample data.
 - The current backend admin role has no granular server-side permissions, so the connected panel exposes the patient directory as read-only. Other operational screens remain UI previews and do not persist to the backend.
-- Admin image uploads use `/api/admin/media/upload` and the backend's private R2 bucket. Video content is added as a YouTube URL and streams from YouTube.
+- Admin product, banner, and patient-review images are uploaded in the same multipart request that saves their record. Video content is added as a YouTube URL and streams from YouTube.
 
 ## Cloudflare deployment
 

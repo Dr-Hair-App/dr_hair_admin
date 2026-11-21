@@ -45,6 +45,7 @@ import {
 import { Modal } from "../../shared/components/ui";
 import { FullSizeImageViewer, type ViewerImage } from "../../shared/components/full-size-image-viewer";
 import type { AdminPermissionId } from "../../shared/types";
+import { cachedFetch, TTL_PROFILES } from "../../shared/lib/api-cache";
 
 type ScalpPhoto = {
   file_name?: string;
@@ -284,10 +285,10 @@ export function PatientAssessmentDetailPage({
 
   const canManage = permissions.includes("assessments.review") || permissions.includes("hair-tests.upload") || permissions.includes("care-plans.edit");
 
-  // Fetch product catalog on mount
+  // Fetch product catalog on mount (reuses cached products)
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/admin/products", { cache: "no-store", signal: controller.signal })
+    cachedFetch("/api/admin/products", { signal: controller.signal }, TTL_PROFILES.products)
       .then(async (res) => {
         if (!res.ok) return;
         const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;

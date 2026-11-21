@@ -12,6 +12,7 @@ export default defineConfig({
     },
     env: {
       ASSETS: bindings.assets(),
+      BACKEND_SERVICE: bindings.worker({ worker: "dr-hair-backend" }),
       DRHAIR_BACKEND_URL: bindings.secret(),
       ADMIN_PUBLIC_URL: bindings.secret(),
     },

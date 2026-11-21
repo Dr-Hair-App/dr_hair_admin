@@ -8,6 +8,7 @@ import type { AdminPermissionId, Role } from "../../shared/types";
 import { Modal } from "../../shared/components/ui";
 import { CareArtwork, ImageChoice, dietOptions, routineOptions, type CareProductOption, type CareArt } from "./patient-care-options";
 import { FullSizeImageViewer, type ViewerImage } from "../../shared/components/full-size-image-viewer";
+import { cachedFetch, TTL_PROFILES } from "../../shared/lib/api-cache";
 
 type Patient = { id: number | string; patient_code?: string; name: string; email?: string; phone?: string; age?: number | null; gender?: string | null; city?: string | null; occupation?: string | null; profile_url?: string | null; platform?: string; created_at?: string; updated_at?: string };
 type Assessment = Record<string, unknown> & { id: string | number; reference_no?: string; created_at?: string; scalp_photos?: { file_name?: string; url?: string }[] };
@@ -17,7 +18,7 @@ type DietMeal = { type: string; name: string; nutrients?: string; benefit?: stri
 type Treatment = { id: string | number; reference_no?: string; treatment_name: string; duration?: string; instructions?: string; doctor_name?: string; diagnosis?: string; stage?: string; next_review_date?: string; medications?: Medication[]; routine_steps?: RoutineStep[]; diet_meals?: DietMeal[]; date?: string };
 type Report = { id: string; notification_delivery?: { inboxCreated?: boolean; pushSent?: number; pushFailed?: number; pushStatus?: "sent" | "failed" | "no_devices" | "unavailable" | "not_created" }; title: string; file_name: string; mime_type: string; format: string; bytes: number; stored_bytes?: number; compressed?: boolean; uploaded_by?: string; visibility?: "Private" | "Shared"; shared_at?: string | null; deleted_at?: string | null; purge_after?: string | null; visibility_history?: { action?: "uploaded" | "shared" | "hidden" | "archived" | "restored"; visibility: "Private" | "Shared"; changed_by?: string; changed_at?: string | null; patient_consent_confirmed?: boolean }[]; created_at: string };
 type PatientActivity = { id: string; type: string; title: string; summary?: string; actor?: string; occurred_at: string };
-type PatientAppointment = { id: string; starts_at: string; reason?: string; status: string; opd_token?: string };
+type PatientAppointment = { id: string; starts_at: string; reason?: string; status: string; opd_token?: string; consultation_fee?: number; payment_status?: string; payment_method?: string };
 type ProgressCheckIn = { id: string; date: string; scalp_region?: string; shedding_level?: string; notes?: string; density_rating?: number; is_doctor_reviewed?: boolean; doctor_note?: string; photos?: { angle?: string; url?: string; file_name?: string; mime_type?: string; bytes?: number }[] };
 type PatientDetails = { patient: Patient; assessments: Assessment[]; treatments: Treatment[]; reports: Report[]; appointments: PatientAppointment[]; activity: PatientActivity[]; progressCheckIns: ProgressCheckIn[] };
 
@@ -149,7 +150,7 @@ export function PatientDetailPage({ patientId, role, permissions, onToast, onAud
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/admin/products", { cache: "no-store", signal: controller.signal })
+    cachedFetch("/api/admin/products", { signal: controller.signal }, TTL_PROFILES.products)
       .then(async (res) => {
         if (!res.ok) throw new Error("The product catalog could not be loaded.");
         const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
@@ -611,7 +612,59 @@ export function PatientDetailPage({ patientId, role, permissions, onToast, onAud
 
         <section className="min-w-0 rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
           <SectionHeading icon={<CalendarDays size={17} />} title="Appointments" subtitle="Upcoming and recent clinic visits linked to this patient ID." />
-          {details.appointments.length ? <div className="mt-4 space-y-2.5">{[...details.appointments].sort((a, b) => new Date(b.starts_at).getTime() - new Date(a.starts_at).getTime()).slice(0, 4).map((appointment) => <article key={appointment.id} className="flex min-w-0 items-center gap-3 rounded-2xl bg-[#FAFBFD] p-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white text-teal-700"><CalendarDays size={17} /></span><div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold text-[#1A365D]">{appointment.reason || "Clinic consultation"}</p><p className="mt-1 text-[10px] text-slate-500">{new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(appointment.starts_at))} · {appointment.id}</p></div><span className="rounded-full bg-white px-2 py-1 text-[10px] font-semibold text-slate-600">{appointment.status}</span></article>)}</div> : <EmptyState icon={<CalendarDays size={19} />} title="No appointments yet" detail="Patient appointment requests and clinic bookings will appear here." />}
+          {details.appointments.length ? (
+            <div className="mt-4 space-y-2.5">
+              {[...details.appointments]
+                .sort((a, b) => new Date(b.starts_at).getTime() - new Date(a.starts_at).getTime())
+                .slice(0, 4)
+                .map((appointment) => {
+                  const isPaid = appointment.payment_status === "Paid";
+                  const isFree = appointment.payment_status === "Waived" || (appointment.consultation_fee != null && appointment.consultation_fee === 0);
+                  const isRefunded = appointment.payment_status === "Refunded";
+                  const feeText = appointment.consultation_fee != null ? `₹${appointment.consultation_fee}` : "₹500";
+
+                  return (
+                    <article key={appointment.id} className="flex min-w-0 items-center gap-3 rounded-2xl bg-[#FAFBFD] p-3">
+                      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white text-teal-700">
+                        <CalendarDays size={17} />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-semibold text-[#1A365D]">
+                          {appointment.reason || "Clinic consultation"}
+                        </p>
+                        <p className="mt-1 text-[10px] text-slate-500">
+                          {new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(appointment.starts_at))} · {appointment.id}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                        <span className="rounded-full bg-white px-2 py-1 text-[10px] font-semibold text-slate-600">
+                          {appointment.status}
+                        </span>
+                        {isPaid ? (
+                          <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                            Paid{appointment.consultation_fee != null ? ` · ${feeText}` : ""}
+                          </span>
+                        ) : isFree ? (
+                          <span className="rounded-full bg-teal-50 border border-teal-200 px-2 py-0.5 text-[10px] font-bold text-teal-700">
+                            Free 1st Visit · ₹0
+                          </span>
+                        ) : isRefunded ? (
+                          <span className="rounded-full bg-rose-50 border border-rose-200 px-2 py-0.5 text-[10px] font-bold text-rose-700">
+                            Refunded
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                            Payment Pending · {feeText} (Pay at clinic)
+                          </span>
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
+            </div>
+          ) : (
+            <EmptyState icon={<CalendarDays size={19} />} title="No appointments yet" detail="Patient appointment requests and clinic bookings will appear here." />
+          )}
         </section>
 
         <section className="min-w-0 rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">

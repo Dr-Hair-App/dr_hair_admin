@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -65,6 +65,13 @@ async function readContentApiResponse(response: Response): Promise<ContentApiRes
   }
 }
 
+function makeContentMultipartBody(payload: unknown, files: File[]): FormData {
+  const body = new FormData();
+  body.append("payload", JSON.stringify(payload));
+  files.forEach((file) => body.append("files", file));
+  return body;
+}
+
 function extractYouTubeId(url: string): string | null {
   if (!url || typeof url !== "string") return null;
   const trimmed = url.trim();
@@ -124,6 +131,7 @@ function mapSavedReview(item: Record<string, unknown>): ReviewContentItem {
     duration: String(item.duration || ""),
     comment: String(item.message || item.comment || ""),
     avatar: String(item.avatar || ""),
+    mediaAssets: item.media_assets as ReviewContentItem["mediaAssets"],
     verified: item.is_verified === true,
     consentVerified: item.consent_verified === true,
     status,
@@ -203,7 +211,7 @@ export function ContentManagement({
   };
 
   useEffect(() => {
-    if (scope !== "content" || (!canUploadMedia && !canEdit)) return;
+    if (scope !== "content" || activeTab !== "videos" || (!canUploadMedia && !canEdit)) return;
     const controller = new AbortController();
     fetch("/api/admin/media/videos", { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
@@ -218,11 +226,12 @@ export function ContentManagement({
         if (!controller.signal.aborted) setVideoLoadError(error instanceof Error ? error.message : "Saved videos could not be loaded.");
       });
     return () => controller.abort();
-  }, [canEdit, canUploadMedia, scope, setVideos]);
+  }, [activeTab, canEdit, canUploadMedia, scope, setVideos]);
 
   const [isRefreshingVideos, setIsRefreshingVideos] = useState(false);
 
   useEffect(() => {
+    if (activeTab === "banners") return;
     const controller = new AbortController();
     fetch("/api/admin/categories?type=video", { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
@@ -245,7 +254,7 @@ export function ContentManagement({
         if (!controller.signal.aborted) setManagedContentError(error instanceof Error ? error.message : "Categories could not be loaded.");
       });
     return () => controller.abort();
-  }, []);
+  }, [activeTab]);
 
   const refreshVideos = async () => {
     setIsRefreshingVideos(true);
@@ -372,7 +381,9 @@ export function ContentManagement({
     variants: { url: string; publicId: string; format: string; bytes: number }[];
     processingStatus: string;
   }>();
+  const [formUploadFiles, setFormUploadFiles] = useState<File[]>([]);
   const [isUploadingFormMedia, setIsUploadingFormMedia] = useState(false);
+  const formPreviewUrlRef = useRef<string | null>(null);
   const [formVideoUrl, setFormVideoUrl] = useState("");
   const [formVideoPlacement, setFormVideoPlacement] = useState<"home" | "reels" | "both">("reels");
   const [formSecondaryText, setFormSecondaryText] = useState(""); // caption / comment / subtitle
@@ -385,6 +396,16 @@ export function ContentManagement({
   const [formEndsAt, setFormEndsAt] = useState("");
   const [formPlacement, setFormPlacement] = useState<"Home hero" | "Home card">("Home hero");
   const [reviewConsentConfirmed, setReviewConsentConfirmed] = useState(false);
+
+  const clearPendingImageUpload = () => {
+    if (formPreviewUrlRef.current) URL.revokeObjectURL(formPreviewUrlRef.current);
+    formPreviewUrlRef.current = null;
+    setFormUploadFiles([]);
+  };
+
+  useEffect(() => () => {
+    if (formPreviewUrlRef.current) URL.revokeObjectURL(formPreviewUrlRef.current);
+  }, []);
 
   const refreshManagedContent = async () => {
     if (activeTab === "videos") return refreshVideos();
@@ -446,7 +467,8 @@ export function ContentManagement({
     });
   }, [banners, query, selectedCategory, statusFilter]);
 
-  // Handle Image Upload with FileReader preview
+  // Prepare one upload-optimized image locally. The file travels with the
+  // content save, avoiding a separate media request and duplicate source bytes.
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!canUploadMedia) return;
     const file = e.target.files?.[0];
@@ -456,41 +478,23 @@ export function ContentManagement({
     void (async () => {
       try {
         const prepared = await prepareSmartImage(file);
-        const body = new FormData();
-        body.append("files", prepared.original);
-        prepared.variants.forEach((variant) => body.append("files", variant.file));
-        const response = await fetch("/api/admin/media/upload", {
-          method: "POST",
-          headers: { "X-Media-Purpose": "content" },
-          body,
-          cache: "no-store",
-        });
-        const result = await readContentApiResponse(response);
-        const items = Array.isArray(result?.data?.items) ? result.data.items : [];
-        if (!response.ok || items.length !== 1 + prepared.variants.length) {
-          throw new Error(result?.message || "Image upload failed.");
-        }
-        const assets = items.map((item: Record<string, unknown>) => ({
-          url: String(item.url || ""),
-          publicId: String(item.public_id || item.asset_id || ""),
-          format: String(item.format || ""),
-          bytes: Number(item.bytes) || 0,
-        }));
-        if (assets.some((item: { url: string; publicId: string }) => !item.url || !item.publicId)) {
-          throw new Error("The media service returned incomplete upload metadata.");
-        }
-        const original = assets[0];
-        const selected = assets.slice(1).find((item: { format: string }) => item.format === "webp") || assets[1] || original;
-        setFormMediaUrl(selected.url);
+        const selectedFile = prepared.variants.find((variant) => variant.format === "webp")?.file
+          || prepared.variants[0]?.file
+          || prepared.original;
+        const previewUrl = URL.createObjectURL(selectedFile);
+        if (formPreviewUrlRef.current) URL.revokeObjectURL(formPreviewUrlRef.current);
+        formPreviewUrlRef.current = previewUrl;
+        setFormUploadFiles([selectedFile]);
         setFormMediaAssets({
-          originalUrl: original.url,
-          originalPublicId: original.publicId,
-          variants: assets.map((item: { url: string; publicId: string; format: string; bytes: number }) => item),
+          originalUrl: "",
+          originalPublicId: "",
+          variants: [],
           processingStatus: prepared.processingStatus,
         });
-        onToast(`Image uploaded; the original is preserved in R2. ${selected === original ? "No smaller derivative was available." : "An optimized preview is ready."}`);
+        setFormMediaUrl(previewUrl);
+        onToast(prepared.variants.length ? "Optimized image is ready and will upload when you save." : "Image is ready and will upload when you save.");
       } catch (error) {
-        onToast(error instanceof Error ? error.message : "Image upload failed.");
+        onToast(error instanceof Error ? error.message : "Image preparation failed.");
       } finally {
         setIsUploadingFormMedia(false);
       }
@@ -533,6 +537,7 @@ export function ContentManagement({
 
   // Open Create Modal
   const openCreateModal = () => {
+    clearPendingImageUpload();
     setEditingItemId(null);
     setOriginalItemStatus(null);
     setFormTitle("");
@@ -560,6 +565,7 @@ export function ContentManagement({
       onToast("Published app content is locked for this editor. Ask Dr. Jai Bansal to make a publishable revision.");
       return;
     }
+    clearPendingImageUpload();
     setEditingItemId(item.id);
     setOriginalItemStatus(item.status);
     setFormCategory(item.category);
@@ -654,7 +660,7 @@ export function ContentManagement({
       return;
     }
 
-    const defaultImage = formMediaUrl.trim();
+    const defaultImage = formUploadFiles.length ? "" : formMediaUrl.trim();
     const savedStatus = !canPublish && formStatus === "Published" ? "Draft" : formStatus;
 
     if (activeTab === "videos") {
@@ -746,6 +752,7 @@ export function ContentManagement({
           category: formCategory.trim() || "General",
           message: formSecondaryText.trim(),
           avatar: defaultImage,
+          ...(formMediaAssets ? { media_assets: formMediaAssets } : {}),
           treatment: formDetailTag.trim(),
           review_type: "doctor",
           page: "home",
@@ -753,10 +760,13 @@ export function ContentManagement({
         };
         let savedReview: Record<string, unknown>;
         if (editingItemId) {
+          const requestBody = formUploadFiles.length
+            ? makeContentMultipartBody(payload, formUploadFiles)
+            : JSON.stringify(payload);
           const response = await fetch(`/api/admin/reviews/${encodeURIComponent(editingItemId)}`, {
             method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
+            ...(formUploadFiles.length ? {} : { headers: { "Content-Type": "application/json" } }),
+            body: requestBody,
             cache: "no-store",
           });
           const result = await readContentApiResponse(response);
@@ -774,10 +784,14 @@ export function ContentManagement({
             savedReview = statusResult.data as Record<string, unknown>;
           }
         } else {
+          const createPayload = { ...payload, status };
+          const requestBody = formUploadFiles.length
+            ? makeContentMultipartBody(createPayload, formUploadFiles)
+            : JSON.stringify(createPayload);
           const response = await fetch("/api/admin/reviews", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...payload, status }),
+            ...(formUploadFiles.length ? {} : { headers: { "Content-Type": "application/json" } }),
+            body: requestBody,
             cache: "no-store",
           });
           const result = await readContentApiResponse(response);
@@ -789,6 +803,7 @@ export function ContentManagement({
           ? current.map((review) => review.id === editingItemId ? mappedReview : review)
           : [mappedReview, ...current]);
         setIsCreateModalOpen(false);
+        clearPendingImageUpload();
         onAudit(savedReview.status === "active" ? "published patient story" : "saved patient story draft", `review:${mappedReview.id}`);
         onToast(savedReview.status === "active" ? "Patient story published." : "Patient story saved to the review queue.");
       } catch (error) {
@@ -822,18 +837,22 @@ export function ContentManagement({
         };
         let savedBanner: Record<string, unknown>;
         if (editingItemId) {
+          const updatePayload = {
+            title: payload.title,
+            subtitle: payload.subtitle,
+            imageUrl: payload.imageUrl,
+            actionUrl: payload.actionUrl,
+            placement: payload.placement,
+            sortOrder: payload.sortOrder,
+            metadata: payload.metadata,
+          };
+          const requestBody = formUploadFiles.length
+            ? makeContentMultipartBody(updatePayload, formUploadFiles)
+            : JSON.stringify(updatePayload);
           const response = await fetch(`/api/admin/content/${encodeURIComponent(editingItemId)}`, {
             method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              title: payload.title,
-              subtitle: payload.subtitle,
-              imageUrl: payload.imageUrl,
-              actionUrl: payload.actionUrl,
-              placement: payload.placement,
-              sortOrder: payload.sortOrder,
-              metadata: payload.metadata,
-            }),
+            ...(formUploadFiles.length ? {} : { headers: { "Content-Type": "application/json" } }),
+            body: requestBody,
             cache: "no-store",
           });
           const result = await readContentApiResponse(response);
@@ -851,10 +870,13 @@ export function ContentManagement({
             savedBanner = statusResult.data as Record<string, unknown>;
           }
         } else {
+          const requestBody = formUploadFiles.length
+            ? makeContentMultipartBody(payload, formUploadFiles)
+            : JSON.stringify(payload);
           const response = await fetch("/api/admin/content", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
+            ...(formUploadFiles.length ? {} : { headers: { "Content-Type": "application/json" } }),
+            body: requestBody,
             cache: "no-store",
           });
           const result = await readContentApiResponse(response);
@@ -866,6 +888,7 @@ export function ContentManagement({
           ? current.map((banner) => banner.id === editingItemId ? mappedBanner : banner)
           : [mappedBanner, ...current]);
         setIsCreateModalOpen(false);
+        clearPendingImageUpload();
         onAudit(savedBanner.status === "published" ? "published app banner" : "saved app banner draft", mappedBanner.title);
         onToast(savedBanner.status === "published" ? "Banner published to the app." : "Banner saved to the content library.");
       } catch (error) {
@@ -1809,7 +1832,7 @@ export function ContentManagement({
                 />
                 <label htmlFor="media-upload-input" className="cursor-pointer flex flex-col items-center gap-1.5">
                   <UploadCloud size={20} className="text-teal-600" />
-                  <span className="text-xs font-semibold text-slate-700">{isUploadingFormMedia ? "Optimizing and uploading…" : canUploadMedia ? "Click to upload app image" : "App media upload permission required"}</span>
+                  <span className="text-xs font-semibold text-slate-700">{isUploadingFormMedia ? "Preparing image…" : canUploadMedia ? "Select image to save with content" : "App media upload permission required"}</span>
                   <span className="text-[10px] text-slate-400">JPG, PNG, WebP, AVIF, HEIC, HEIF or GIF · 25 MiB max</span>
                 </label>
               </div>

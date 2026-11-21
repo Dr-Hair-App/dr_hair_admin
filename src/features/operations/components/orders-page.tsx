@@ -10,6 +10,7 @@ import { SlidingTabList } from "../../shared/components/sliding-tab-list";
 import { formatCurrency } from "../../commerce/lib/format";
 import type { OrderFulfillmentStatus, OrderPaymentStatus, OrderRecord } from "../../shared/types";
 import { ReceivedPaymentsPanel } from "./received-payments-panel";
+import { cachedFetch } from "../../shared/lib/api-cache";
 
 type QueueTab = "All orders" | "New" | "Preparing" | "Shipped" | "Needs attention" | "Returns" | "Delivered" | "Cancelled & refunded";
 type OrderDateFilter = "All dates" | "Last 7 days" | "Last 30 days";
@@ -279,11 +280,21 @@ export function OrdersPage({ globalSearch, onToast, onAudit = () => {}, canExpor
     const hasReturnTracking = Boolean(selectedOrder?.shiprocketReturnAwb);
     if (!orderId || (!shipmentId && !hasManualTracking && !hasReturnTracking)) return;
 
+    const statusLower = (selectedOrder?.status || "").toLowerCase();
+    const isTerminal = ["delivered", "cancelled", "canceled", "refunded"].includes(statusLower);
+    const isActiveShipping = statusLower === "shipped" || Boolean(selectedOrder?.shiprocketReturnAwb);
+
     let ignore = false;
+    let trackingRequestInFlight = false;
+    let lastFetchTimestamp = Date.now();
+
     const loadTracking = async () => {
+      if (trackingRequestInFlight) return;
+      trackingRequestInFlight = true;
+      lastFetchTimestamp = Date.now();
       setTrackingState({ orderId, data: null, loading: true, error: "" });
       try {
-        const res = await fetch(`/api/admin/orders/${encodeURIComponent(orderId)}/tracking`, { cache: "no-store" });
+        const res = await cachedFetch(`/api/admin/orders/${encodeURIComponent(orderId)}/tracking`, undefined, 60_000);
         const json = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(json.message || "Tracking updates could not be loaded.");
         if (!ignore) {
@@ -292,17 +303,40 @@ export function OrdersPage({ globalSearch, onToast, onAudit = () => {}, canExpor
       } catch (error) {
         if (!ignore) setTrackingState({ orderId, data: null, loading: false, error: error instanceof Error ? error.message : "Tracking updates could not be loaded." });
       } finally {
+        trackingRequestInFlight = false;
         if (!ignore) setTrackingState((current) => current.orderId === orderId ? { ...current, loading: false } : current);
       }
     };
 
     void loadTracking();
-    const timer = window.setInterval(() => void loadTracking(), 60_000);
+
+    // Throttled visibilitychange listener: only re-fetch if at least 60 seconds have elapsed since last fetch
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") {
+        const now = Date.now();
+        if (now - lastFetchTimestamp >= 60_000) {
+          void loadTracking();
+        }
+      }
+    };
+
+    // Only poll every 5 minutes for orders with active shipping status (skip terminal orders)
+    let timer: number | null = null;
+    if (!isTerminal && isActiveShipping) {
+      timer = window.setInterval(refreshWhenVisible, 5 * 60_000);
+    }
+
+    // Only attach visibility listener if not terminal
+    if (!isTerminal) {
+      document.addEventListener("visibilitychange", refreshWhenVisible);
+    }
+
     return () => {
       ignore = true;
-      window.clearInterval(timer);
+      if (timer !== null) window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [selectedOrder?.id, selectedOrder?.shiprocketShipmentId, selectedOrder?.shiprocketReturnAwb, selectedOrder?.trackingNumber, selectedOrder?.trackingUrl, trackingRefreshKey]);
+  }, [selectedOrder?.id, selectedOrder?.status, selectedOrder?.shiprocketShipmentId, selectedOrder?.shiprocketReturnAwb, selectedOrder?.trackingNumber, selectedOrder?.trackingUrl, trackingRefreshKey]);
 
   const selectedTracking = trackingState.orderId === selectedOrder?.id ? trackingState : null;
 

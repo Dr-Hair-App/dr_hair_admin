@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Avatar, PageHeader, TableToolbar, Modal } from "../../shared/components/ui";
 import { SlidingTabList } from "../../shared/components/sliding-tab-list";
 import type { Role } from "../../shared/types";
+import { cachedFetch, TTL_PROFILES } from "../../shared/lib/api-cache";
 
 export interface LoginUserRecord {
   id: number | string;
@@ -64,7 +65,20 @@ export function PatientAccountManagement({
   const [segmentSummary, setSegmentSummary] = useState<SegmentSummary | null>(null);
   const userRequest = useRef<AbortController | null>(null);
   const [userSearch, setUserSearch] = useState("");
+  const [debouncedUserSearch, setDebouncedUserSearch] = useState("");
   const [userStatusFilter, setUserStatusFilter] = useState<"All" | "Active" | "Blocked">("All");
+
+  // Debounce search input by 350ms and enforce min-length >= 2 or empty
+  useEffect(() => {
+    const trimmed = userSearch.trim();
+    if (trimmed.length === 1) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setDebouncedUserSearch(userSearch);
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [userSearch]);
 
   // Modals state
   const [blockModalUser, setBlockModalUser] = useState<LoginUserRecord | null>(null);
@@ -82,7 +96,7 @@ export function PatientAccountManagement({
     setLoadingUsers(true);
     setUsersLoadError("");
     try {
-      const search = userSearch.trim() || globalSearch.trim();
+      const search = debouncedUserSearch.trim() || globalSearch.trim();
       const params = new URLSearchParams({ page: String(userPage), limit: String(userPageSize), segment: selectedSegment });
       if (search) params.set("search", search);
       const response = await fetch(`/api/admin/users?${params.toString()}`, { cache: "no-store", signal: controller.signal });
@@ -135,7 +149,7 @@ export function PatientAccountManagement({
     } finally {
       if (!controller.signal.aborted) setLoadingUsers(false);
     }
-  }, [globalSearch, onToast, selectedSegment, userPage, userPageSize, userSearch]);
+  }, [debouncedUserSearch, globalSearch, onToast, selectedSegment, userPage, userPageSize]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -145,7 +159,7 @@ export function PatientAccountManagement({
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/admin/users/segments", { cache: "no-store", signal: controller.signal })
+    cachedFetch("/api/admin/users/segments", { signal: controller.signal }, TTL_PROFILES.navigationShort)
       .then((response) => response.ok ? response.json() : null)
       .then((result) => {
         if (!controller.signal.aborted && result?.data) setSegmentSummary(result.data as SegmentSummary);

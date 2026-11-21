@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const testFiles = [
+  'test/api_cache.test.mjs',
+  'test/admin_request_optimization.test.mjs',
   'test/admin_auth_workflow.test.mjs',
   'test/patient_records_workflow.test.mjs',
   'test/patient_accounts_ui.test.mjs',
@@ -16,7 +18,6 @@ const testFiles = [
   'test/reports_and_analytics_workflow.test.mjs',
   'test/routes_and_pages_verification.test.mjs',
   'test/admin_production_regressions.test.mjs',
-  'test/admin_media_upload_proxy.test.mjs',
   'test/admin_product_multipart_proxy.test.mjs',
   'test/admin_clinical_report_upload_proxy.test.mjs',
   'test/admin_my_reports_proxy.test.mjs',
@@ -37,7 +38,7 @@ for (const file of testFiles) {
   
   const startTime = Date.now();
   const exitCode = await new Promise((resolve) => {
-    const proc = spawn(process.execPath, ['--test', testPath], {
+    const proc = spawn(process.execPath, ['--test', '--experimental-strip-types', testPath], {
       stdio: 'inherit',
       env: { ...process.env, NODE_ENV: 'development' },
     });

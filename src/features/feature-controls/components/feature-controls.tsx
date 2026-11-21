@@ -4,6 +4,7 @@ import { AlertCircle, BellRing, CalendarDays, CheckCircle2, ClipboardCheck, File
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import type { FeatureRecord } from "../../shared/types";
 import { Modal, ToggleSwitch } from "../../shared/components/ui";
+import { cachedFetch, TTL_PROFILES } from "../../shared/lib/api-cache";
 
 const iconFor: Record<string, React.ComponentType<{ size?: number }>> = {
   shop: ShoppingBag,
@@ -43,18 +44,18 @@ export function FeatureControls({
 
   useEffect(() => {
     let active = true;
-    Promise.all([
-      fetch("/api/admin/features", { cache: "no-store" }),
-      fetch("/api/admin/features?platform=admin", { cache: "no-store" }),
-    ])
-      .then(async ([appResponse, panelResponse]) => {
-        if (!appResponse.ok || !panelResponse.ok) throw new Error("Feature settings could not be loaded.");
-        return Promise.all([appResponse.json(), panelResponse.json()]);
+    cachedFetch(
+      "/api/admin/features",
+      undefined,
+      TTL_PROFILES.features,
+    )
+      .then(async (appResponse) => {
+        if (!appResponse.ok) throw new Error("Feature settings could not be loaded.");
+        return appResponse.json();
       })
-      .then(([appPayload, panelPayload]) => {
+      .then((appPayload) => {
         if (!active) return;
         const appItems = Array.isArray(appPayload?.data?.items) ? appPayload.data.items : [];
-        const panelItems = Array.isArray(panelPayload?.data?.items) ? panelPayload.data.items : [];
         const liveAppMap = new Map(appItems.filter((item: { platform?: string }) => item.platform !== "admin").map((item: { key: string }) => [item.key, item]));
         onFeaturesChange((current) => current.map((feature) => {
           const live = liveAppMap.get(feature.id);
@@ -66,12 +67,6 @@ export function FeatureControls({
             enabled: typeof live.enabled === "boolean" ? live.enabled : feature.enabled,
           } : feature;
         }));
-        const panelAccessMap = Object.fromEntries(panelItems
-          .filter((item: { key?: string }) => typeof item.key === "string" && item.key.startsWith("admin_"))
-          .map((item: { key: string; enabled?: boolean }) => [item.key.slice("admin_".length), item.enabled !== false]));
-        if (Object.keys(panelAccessMap).length) {
-          for (const [id, enabled] of Object.entries(panelAccessMap)) onPanelAccessChange(id, enabled);
-        }
         setLoadError("");
       })
       .catch((error: unknown) => {
@@ -80,7 +75,7 @@ export function FeatureControls({
     return () => {
       active = false;
     };
-  }, [onFeaturesChange, onPanelAccessChange]);
+  }, [onFeaturesChange]);
 
   const commitToggle = async () => {
     if (!target) return;

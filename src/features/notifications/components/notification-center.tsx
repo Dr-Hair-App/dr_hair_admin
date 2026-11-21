@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Activity, BellRing, CalendarDays, CheckCheck, ChevronRight, FileText, PackageCheck, UsersRound } from "lucide-react";
 import { PageHeader } from "../../shared/components/ui";
 import { useSessionState } from "../../shared/lib/use-session-state";
+import { cachedFetch, TTL_PROFILES } from "../../shared/lib/api-cache";
 import type { AuditEventRecord, PageKey, Role } from "../../shared/types";
 
 type NotificationCategory = "Appointments" | "Patients" | "Reports" | "Orders" | "Activity";
@@ -25,14 +26,13 @@ const filters: NotificationFilter[] = ["All", "Unread", "Appointments", "Patient
 type ApiRecord = Record<string, unknown>;
 type LiveNotificationData = {
   appointments: ApiRecord[];
-  patients: ApiRecord[];
   orders: ApiRecord[];
   hairTests: ApiRecord[];
   reports: ApiRecord[];
   auditEvents: ApiRecord[];
 };
 const emptyLiveData: LiveNotificationData = {
-  appointments: [], patients: [], orders: [], hairTests: [], reports: [], auditEvents: [],
+  appointments: [], orders: [], hairTests: [], reports: [], auditEvents: [],
 };
 
 export function NotificationCenter({
@@ -58,7 +58,6 @@ export function NotificationCenter({
     const controller = new AbortController();
     const sources: [keyof LiveNotificationData, string][] = [];
     if (hasPermission(role, permissions, "bookings.manage")) sources.push(["appointments", "/api/admin/appointments?limit=100"]);
-    if (hasPermission(role, permissions, "patients.view")) sources.push(["patients", "/api/admin/users?page=1&limit=100"]);
     if (hasPermission(role, permissions, "orders.manage")) sources.push(["orders", "/api/admin/orders?limit=100"]);
     if (hasPermission(role, permissions, "hair-tests.view")) sources.push(["hairTests", "/api/admin/hair-tests?limit=100"]);
     if (hasPermission(role, permissions, "reports.share")) sources.push(["reports", "/api/admin/reports?limit=100"]);
@@ -69,7 +68,12 @@ export function NotificationCenter({
       setLoadError("");
       return Promise.all(sources.map(async ([key, url]) => {
       try {
-        const response = await fetch(url, { cache: "no-store", signal: controller.signal });
+        const response = await cachedFetch(
+          url,
+          { cache: "no-store" },
+          TTL_PROFILES.navigationShort,
+          { forceRefresh: reloadKey > 0 },
+        );
         const body = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(typeof body.message === "string" ? body.message : "A notification source could not be loaded.");
         const data = body.data && typeof body.data === "object" ? body.data : {};

@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { ADMIN_SESSION_COOKIE, fetchBackend, noStoreJson, readJson } from "../../_lib/backend";
+import { ADMIN_SESSION_COOKIE, cacheableJson, fetchBackend, noStoreJson, readJson } from "../../_lib/backend";
 import { forwardAdminProductJson, forwardAdminProductMultipart } from "./forward-product-multipart.js";
 
 async function adminToken() {
@@ -20,9 +20,12 @@ export async function GET(request: Request) {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         Accept: "application/json",
       },
-      cache: "no-store",
     });
-    return noStoreJson(await readJson(upstream), upstream.status);
+    const data = await readJson(upstream);
+    if (upstream.ok) {
+      return cacheableJson(data, 60, 300, upstream.status);
+    }
+    return noStoreJson(data, upstream.status);
   } catch {
     return noStoreJson({ message: "The product service is temporarily unavailable." }, 503);
   }

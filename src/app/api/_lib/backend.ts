@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse } from "next/server.js";
 
 export const ADMIN_SESSION_COOKIE = "drhair_admin_session";
 
@@ -41,10 +41,19 @@ if (typeof globalThis !== "undefined" && !fetchIntercepted) {
         ? (input as Request).url
         : "";
 
+    let isLocalBackend = false;
+    try {
+      const target = new URL(urlString);
+      isLocalBackend = target.hostname === "localhost" || target.hostname === "127.0.0.1";
+    } catch {
+      // Relative and malformed URLs continue through the existing binding path.
+    }
+
     if (
-      urlString.includes("dr-hair-backend") ||
-      urlString.includes("api.drhairindia.com") ||
-      urlString.includes("/api/v1/")
+      !isLocalBackend &&
+      (urlString.includes("dr-hair-backend") ||
+        urlString.includes("api.drhairindia.com") ||
+        urlString.includes("/api/v1/"))
     ) {
       try {
         const service = await getBackendService();
@@ -75,6 +84,20 @@ export function noStoreJson(body: unknown, status = 200) {
   return NextResponse.json(body, {
     status,
     headers: { "Cache-Control": "no-store, max-age=0" },
+  });
+}
+
+export function cacheableJson(
+  body: unknown,
+  maxAgeSeconds = 60,
+  staleWhileRevalidateSeconds = 300,
+  status = 200,
+) {
+  return NextResponse.json(body, {
+    status,
+    headers: {
+      "Cache-Control": `public, max-age=${maxAgeSeconds}, stale-while-revalidate=${staleWhileRevalidateSeconds}`,
+    },
   });
 }
 

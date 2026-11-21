@@ -1,8 +1,7 @@
 const MAX_BYTES = 25 * 1024 * 1024;
-const OPTIMIZE_ABOVE_BYTES = 1536 * 1024;
-const TARGET_BYTES = 5 * 1024 * 1024;
-const MAX_EDGE = 2560;
-const MAX_PIXELS = 40_000_000;
+const MAX_IMAGE_EDGE = 2560;
+const WEBP_QUALITY = 0.88;
+const MIN_SAVINGS_RATIO = 0.05;
 
 const MIME_BY_EXTENSION: Record<string, string> = {
   jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp",
@@ -13,7 +12,7 @@ export type SmartImageVariant = { file: File; format: "webp" | "avif" };
 export type SmartImagePreparation = {
   original: File;
   variants: SmartImageVariant[];
-  processingStatus: "ready" | "already_optimized" | "below_threshold" | "animation_preserved" | "encoder_unavailable" | "optimization_failed";
+  processingStatus: "backend_processing_pending";
 };
 
 export async function validateSmartImage(file: File): Promise<void> {
@@ -36,60 +35,63 @@ export async function validateSmartImage(file: File): Promise<void> {
 
 export async function prepareSmartImage(file: File): Promise<SmartImagePreparation> {
   await validateSmartImage(file);
-  const extension = file.name.split(".").pop()?.toLowerCase() || "";
-  if (extension === "gif") return { original: file, variants: [], processingStatus: "animation_preserved" };
-  if ((extension === "webp" || extension === "avif") && file.size <= TARGET_BYTES) {
-    return { original: file, variants: [], processingStatus: "already_optimized" };
-  }
-  if (file.size <= OPTIMIZE_ABOVE_BYTES) {
-    return { original: file, variants: [], processingStatus: "below_threshold" };
-  }
-  if (typeof createImageBitmap !== "function" || typeof document === "undefined") {
-    return { original: file, variants: [], processingStatus: "encoder_unavailable" };
-  }
+  const optimized = await createWebpUploadVariant(file);
+  return {
+    original: file,
+    variants: optimized ? [optimized] : [],
+    processingStatus: "backend_processing_pending",
+  };
+}
+
+/**
+ * Shared best-effort browser optimization for product and content uploads.
+ * Unsupported decoders, animated GIFs, and browsers without canvas encoding
+ * keep the validated source file. The backend remains the final optimizer.
+ */
+async function createWebpUploadVariant(file: File): Promise<SmartImageVariant | null> {
+  const mime = (file.type || MIME_BY_EXTENSION[file.name.split(".").pop()?.toLowerCase() || ""] || "").toLowerCase();
+  // Canvas would flatten animation. Keep GIFs intact and let the backend handle
+  // formats this browser cannot decode (notably some HEIC/AVIF files).
+  if (mime === "image/gif" || typeof createImageBitmap !== "function") return null;
 
   let bitmap: ImageBitmap | undefined;
   try {
-    bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
-    if (!bitmap.width || !bitmap.height || bitmap.width * bitmap.height > MAX_PIXELS) {
-      return { original: file, variants: [], processingStatus: "optimization_failed" };
+    bitmap = await createImageBitmap(file);
+    if (!bitmap.width || !bitmap.height) return null;
+    const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(bitmap.width, bitmap.height));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    let blob: Blob | null;
+    if (typeof OffscreenCanvas !== "undefined") {
+      const canvas = new OffscreenCanvas(width, height);
+      const context = canvas.getContext("2d");
+      if (!context) return null;
+      context.drawImage(bitmap, 0, 0, width, height);
+      blob = await canvas.convertToBlob({ type: "image/webp", quality: WEBP_QUALITY });
+    } else {
+      const canvas = Object.assign(document.createElement("canvas"), { width, height });
+      const context = canvas.getContext("2d");
+      if (!context) return null;
+      context.drawImage(bitmap, 0, 0, width, height);
+      blob = await canvasToBlob(canvas, "image/webp", WEBP_QUALITY);
     }
-    const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-    const context = canvas.getContext("2d", { alpha: true });
-    if (!context) return { original: file, variants: [], processingStatus: "encoder_unavailable" };
-    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    if (!blob || blob.type !== "image/webp" || blob.size >= file.size * (1 - MIN_SAVINGS_RATIO)) return null;
 
-    const variants: SmartImageVariant[] = [];
-    for (const [format, quality] of [["webp", 0.84], ["avif", 0.72]] as const) {
-      const blob = await canvasToBlob(canvas, `image/${format}`, quality);
-      if (!blob || blob.type !== `image/${format}` || blob.size >= file.size * 0.9) continue;
-      const stem = file.name.replace(/\.[^.]+$/, "");
-      variants.push({
-        file: new File([blob], `${stem}.optimized.${format}`, {
-          type: `image/${format}`,
-          lastModified: file.lastModified,
-        }),
-        format,
-      });
-      if (blob.size <= TARGET_BYTES) break;
-    }
+    const baseName = file.name.replace(/\.[^.]+$/, "") || "image";
     return {
-      original: file,
-      variants,
-      processingStatus: variants.length ? "ready" : "optimization_failed",
+      file: new File([blob], `${baseName}.webp`, { type: "image/webp", lastModified: file.lastModified }),
+      format: "webp",
     };
   } catch {
-    return { original: file, variants: [], processingStatus: "optimization_failed" };
+    // Keep uploads available when an image codec/canvas encoder is unavailable.
+    return null;
   } finally {
     bitmap?.close();
   }
 }
 
-function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string, quality: number) {
-  return new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, mimeType, quality));
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob | null> {
+  return new Promise((resolve) => canvas.toBlob(resolve, type, quality));
 }
 
 function switchMime(
